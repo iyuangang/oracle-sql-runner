@@ -1,0 +1,41 @@
+# 编译输出
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# 测试文件
+*.test
+*.tmp
+
+# 配置和日志
+*.log
+config.json
+.env
+
+# IDE相关
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# 依赖目录
+/vendor/
+
+# 临时文件
+tmp/
+temp/
+
+# 密钥和证书
+*.pem
+*.key
+.key
+.salt
+
+# 编译时生成的文件
+build/
+dist/
+release/
