@@ -150,7 +150,7 @@ func (c *Config) Save(path string) error {
 }
 
 func (dc *DatabaseConfig) GetConnectionString() string {
-	return fmt.Sprintf("%s/%s@%s:%d/%s",
+	return fmt.Sprintf(`user="%s" password="%s" connectString="%s:%d/%s"`,
 		dc.User,
 		dc.Password,
 		dc.Host,

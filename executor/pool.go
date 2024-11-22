@@ -3,9 +3,11 @@ package executor
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"sync"
 	"time"
 
+	_ "github.com/godror/godror"
 	"github.com/iyuangang/oracle-sql-runner/config"
 	"github.com/iyuangang/oracle-sql-runner/logger"
 )
@@ -19,12 +21,24 @@ type ConnectionPool struct {
 }
 
 func NewConnectionPool(cfg *config.DatabaseConfig) (*ConnectionPool, error) {
-	db, err := sql.Open("godror", cfg.GetConnectionString())
+	connStr := fmt.Sprintf(`user="%s" password="%s" connectString="%s:%d/%s"`,
+		cfg.User,
+		cfg.Password,
+		cfg.Host,
+		cfg.Port,
+		cfg.Service,
+	)
+
+	logger.Debug("Database connection string", "connStr", connStr)
+
+	db, err := sql.Open("godror", connStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("打开数据库连接失败: %w", err)
 	}
 
-	// 设置连接池参数
+	if cfg.MaxConnections <= 0 {
+		cfg.MaxConnections = 10
+	}
 	db.SetMaxOpenConns(cfg.MaxConnections)
 	db.SetMaxIdleConns(cfg.MaxConnections / 2)
 	db.SetConnMaxLifetime(cfg.PoolTimeout)
@@ -35,10 +49,12 @@ func NewConnectionPool(cfg *config.DatabaseConfig) (*ConnectionPool, error) {
 		maxConns: cfg.MaxConnections,
 	}
 
-	// 验证连接
-	if err := pool.Ping(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	
+	if err := pool.db.PingContext(ctx); err != nil {
 		db.Close()
-		return nil, err
+		return nil, fmt.Errorf("验证数据库连接失败: %w", err)
 	}
 
 	return pool, nil
