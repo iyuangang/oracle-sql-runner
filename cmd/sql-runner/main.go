@@ -1,244 +1,94 @@
 package main
 
 import (
-	"bufio"
-	"database/sql"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
 	"os"
-	"strings"
+	"path/filepath"
 
-	_ "github.com/godror/godror"
+	"github.com/iyuangang/oracle-sql-runner/internal/config"
+	"github.com/iyuangang/oracle-sql-runner/internal/core"
+	"github.com/iyuangang/oracle-sql-runner/internal/utils"
 )
 
-type Config struct {
-	User     string `json:"user"`
-	Password string `json:"password"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Service  string `json:"service"`
-}
-
-type Result struct {
-	Success int
-	Failed  int
-	Errors  []string
-}
-
-func executeSQLFile(db *sql.DB, filepath string) Result {
-	result := Result{}
-	file, err := os.Open(filepath)
-	if err != nil {
-		log.Fatalf("打开SQL文件失败: %v", err)
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	var sqlBuffer strings.Builder
-	inPLSQLBlock := false
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-
-		// 跳过空行和注释
-		if line == "" || strings.HasPrefix(line, "--") {
-			continue
-		}
-
-		upperLine := strings.ToUpper(line)
-
-		// 检查是否进入PL/SQL块
-		if strings.HasPrefix(upperLine, "BEGIN") ||
-			strings.HasPrefix(upperLine, "DECLARE") {
-			inPLSQLBlock = true
-		}
-
-		// 特殊处理CREATE语句
-		if strings.HasPrefix(upperLine, "CREATE OR REPLACE") {
-			if strings.Contains(upperLine, "PROCEDURE") ||
-				strings.Contains(upperLine, "FUNCTION") ||
-				strings.Contains(upperLine, "TRIGGER") ||
-				strings.Contains(upperLine, "PACKAGE") {
-				inPLSQLBlock = true
-			}
-		}
-
-		sqlBuffer.WriteString(line)
-		sqlBuffer.WriteString("\n")
-
-		// 检查PL/SQL块结束
-		if inPLSQLBlock && line == "/" {
-			sql := strings.TrimSpace(sqlBuffer.String())
-			sql = strings.TrimSuffix(sql, "/")
-
-			fmt.Printf("\n执行PL/SQL块:\n%s\n", sql)
-
-			if _, err := db.Exec(sql); err != nil {
-				result.Failed++
-				result.Errors = append(result.Errors, fmt.Sprintf("PL/SQL执行失败: %v\nSQL: %s", err, sql))
-			} else {
-				result.Success++
-			}
-
-			sqlBuffer.Reset()
-			inPLSQLBlock = false
-			continue
-		}
-
-		// 处理普通SQL语句
-		if !inPLSQLBlock && strings.HasSuffix(line, ";") {
-			sql := strings.TrimSpace(sqlBuffer.String())
-			sql = strings.TrimSuffix(sql, ";")
-
-			if strings.HasPrefix(strings.ToUpper(sql), "SELECT") {
-				if err := executeQuery(db, sql); err != nil {
-					result.Failed++
-					result.Errors = append(result.Errors, fmt.Sprintf("查询执行失败: %v\nSQL: %s", err, sql))
-				} else {
-					result.Success++
-				}
-			} else {
-				fmt.Printf("\n执行SQL:\n%s\n", sql)
-				if _, err := db.Exec(sql); err != nil {
-					result.Failed++
-					result.Errors = append(result.Errors, fmt.Sprintf("SQL执行失败: %v\nSQL: %s", err, sql))
-				} else {
-					result.Success++
-				}
-			}
-
-			sqlBuffer.Reset()
-		}
-	}
-
-	// 处理最后一条SQL（如果有）
-	if sqlBuffer.Len() > 0 {
-		sql := strings.TrimSpace(sqlBuffer.String())
-		if !inPLSQLBlock { // 只处理非PL/SQL块的最后一条语句
-			if strings.HasPrefix(strings.ToUpper(sql), "SELECT") {
-				if err := executeQuery(db, sql); err != nil {
-					result.Failed++
-					result.Errors = append(result.Errors, fmt.Sprintf("查询执行失败: %v\nSQL: %s", err, sql))
-				} else {
-					result.Success++
-				}
-			} else {
-				if _, err := db.Exec(sql); err != nil {
-					result.Failed++
-					result.Errors = append(result.Errors, fmt.Sprintf("SQL执行失败: %v\nSQL: %s", err, sql))
-				} else {
-					result.Success++
-				}
-			}
-		}
-	}
-
-	return result
-}
-
-func executeQuery(db *sql.DB, query string) error {
-	fmt.Printf("\n执行查询:\n%s\n", query)
-
-	rows, err := db.Query(query)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	columns, err := rows.Columns()
-	if err != nil {
-		return err
-	}
-
-	// 打印列头
-	for i, col := range columns {
-		if i > 0 {
-			fmt.Print("\t")
-		}
-		fmt.Print(col)
-	}
-	fmt.Println()
-	fmt.Println(strings.Repeat("-", 80))
-
-	values := make([]interface{}, len(columns))
-	scanArgs := make([]interface{}, len(columns))
-	for i := range values {
-		scanArgs[i] = &values[i]
-	}
-
-	rowCount := 0
-	for rows.Next() {
-		err := rows.Scan(scanArgs...)
-		if err != nil {
-			return err
-		}
-
-		for i, value := range values {
-			if i > 0 {
-				fmt.Print("\t")
-			}
-			switch v := value.(type) {
-			case nil:
-				fmt.Print("NULL")
-			case []byte:
-				fmt.Print(string(v))
-			default:
-				fmt.Print(v)
-			}
-		}
-		fmt.Println()
-		rowCount++
-	}
-
-	fmt.Printf("\n共返回 %d 行数据\n", rowCount)
-	fmt.Println(strings.Repeat("-", 80))
-
-	return rows.Err()
-}
+var (
+	Version   = "dev"
+	BuildTime = "unknown"
+)
 
 func main() {
+	// 命令行参数
 	configFile := flag.String("c", "config.json", "配置文件路径")
 	sqlFile := flag.String("f", "", "SQL文件路径")
+	dbName := flag.String("d", "", "数据库名称")
+	verbose := flag.Bool("v", false, "显示详细信息")
+	showVersion := flag.Bool("version", false, "显示版本信息")
 	flag.Parse()
 
+	// 显示版本信息
+	if *showVersion {
+		fmt.Printf("SQL Runner v%s (构建时间: %s)\n", Version, BuildTime)
+		os.Exit(0)
+	}
+
+	// 验证必要参数
 	if *sqlFile == "" {
-		log.Fatal("请指定SQL文件路径 (-f)")
+		fmt.Println("错误: 请指定SQL文件路径 (-f)")
+		flag.Usage()
+		os.Exit(1)
 	}
 
-	data, err := os.ReadFile(*configFile)
+	if *dbName == "" {
+		fmt.Println("错误: 请指定数据库名称 (-d)")
+		flag.Usage()
+		os.Exit(1)
+	}
+
+	// 加载配置
+	cfg, err := config.Load(*configFile)
 	if err != nil {
-		log.Fatalf("读取配置文件失败: %v", err)
+		fmt.Printf("加载配置失败: %v\n", err)
+		os.Exit(1)
 	}
 
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		log.Fatalf("解析配置文件失败: %v", err)
+	// 创建日志目录
+	logDir := "logs"
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		fmt.Printf("创建日志目录失败: %v\n", err)
+		os.Exit(1)
 	}
 
-	connStr := fmt.Sprintf(`user="%s" password="%s" connectString="%s:%d/%s"`,
-		cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Service)
-
-	db, err := sql.Open("godror", connStr)
+	// 初始化日志
+	logFile := filepath.Join(logDir, "sql-runner.log")
+	logger, err := utils.NewLogger(logFile, cfg.LogLevel, *verbose)
 	if err != nil {
-		log.Fatalf("连接数据库失败: %v", err)
+		fmt.Printf("初始化日志失败: %v\n", err)
+		os.Exit(1)
 	}
-	defer db.Close()
+	defer logger.Close()
 
-	if err := db.Ping(); err != nil {
-		log.Fatalf("验证数据库连接失败: %v", err)
+	logger.Info("启动SQL Runner",
+		"version", Version,
+		"build_time", BuildTime,
+		"config", *configFile,
+		"sql_file", *sqlFile,
+		"database", *dbName)
+
+	// 创建执行器
+	executor, err := core.NewExecutor(cfg, *dbName, logger)
+	if err != nil {
+		logger.Fatal("创建执行器失败", "error", err)
 	}
+	defer executor.Close()
 
-	result := executeSQLFile(db, *sqlFile)
+	// 执行SQL文件
+	result := executor.ExecuteFile(*sqlFile)
 
-	fmt.Printf("\n执行结果:\n")
-	fmt.Printf("成功: %d\n", result.Success)
-	fmt.Printf("失败: %d\n", result.Failed)
+	// 输出结果
+	result.Print()
+
+	// 根据执行结果设置退出码
 	if result.Failed > 0 {
-		fmt.Printf("\n错误详情:\n")
-		for i, err := range result.Errors {
-			fmt.Printf("%d. %s\n", i+1, err)
-		}
+		os.Exit(1)
 	}
 }

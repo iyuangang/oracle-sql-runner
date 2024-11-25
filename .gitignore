@@ -39,6 +39,3 @@ temp/
 build/
 dist/
 release/
-
-# sql
-*.sql

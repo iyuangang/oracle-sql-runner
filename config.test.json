@@ -1,0 +1,20 @@
+{
+  "databases": {
+      "test": {
+          "name": "测试环境",
+          "user": "test_user",
+          "password": "test_password",
+          "host": "localhost",
+          "port": 1521,
+          "service": "ORCLPDB1",
+          "max_connections": 5,
+          "idle_timeout": 300
+      }
+  },
+  "max_retries": 3,
+  "max_concurrent": 2,
+  "batch_size": 100,
+  "timeout": "10s",
+  "log_level": "debug",
+  "log_file": "sql-runner-test.log"
+}
