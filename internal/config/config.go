@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -32,9 +33,13 @@ type Config struct {
 
 // GetConnectionString 获取数据库连接字符串
 func (dc *DatabaseConfig) GetConnectionString() string {
+	// Oracle 中双引号需要用双引号转义
+	user := strings.ReplaceAll(dc.User, `"`, `""`)
+	password := strings.ReplaceAll(dc.Password, `"`, `""`)
+
 	return fmt.Sprintf(`user="%s" password="%s" connectString="%s:%d/%s"`,
-		dc.User,
-		dc.Password,
+		user,
+		password,
 		dc.Host,
 		dc.Port,
 		dc.Service,

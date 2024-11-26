@@ -24,9 +24,9 @@ func TestParseFile(t *testing.T) {
 	}{
 		{
 			name: "基本SQL语句",
-			content: `-- 注释
-SELECT * FROM users;
-INSERT INTO users (name) VALUES ('test');`,
+			content: `  -- 注释
+    SELECT * FROM users;
+    INSERT INTO users (name) VALUES ('test');`,
 			wantErr: false,
 			expected: []models.SQLTask{
 				{
@@ -170,7 +170,11 @@ END;`,
 			content: `DECLARE
     v_count NUMBER;
 BEGIN
-    SELECT COUNT(*) INTO v_count FROM dual;
+    IF 0 = 1 THEN
+        DBMS_OUTPUT.PUT_LINE('This should not be printed');
+    ELSE
+        SELECT COUNT(*) INTO v_count FROM dual;
+    END IF;
 END;
 /`,
 			wantErr: false,
@@ -179,10 +183,40 @@ END;
 					SQL: `DECLARE
     v_count NUMBER;
 BEGIN
+    IF 0 = 1 THEN
+    DBMS_OUTPUT.PUT_LINE('This should not be printed');
+    ELSE
     SELECT COUNT(*) INTO v_count FROM dual;
+END IF;
 END;`,
 					Type:     models.SQLTypePLSQL,
-					LineNum:  6,
+					LineNum:  10,
+					Filename: "", // 将在测试中设置
+				},
+			},
+		},
+		{
+			name:    "单条语句无分号",
+			content: `SELECT * FROM dual`,
+			wantErr: false,
+			expected: []models.SQLTask{
+				{
+					SQL:      "SELECT * FROM dual",
+					Type:     models.SQLTypeQuery,
+					LineNum:  1,
+					Filename: "", // 将在测试中设置
+				},
+			},
+		},
+		{
+			name:    "单条DML语句无分号",
+			content: `INSERT INTO test_table VALUES (1)`,
+			wantErr: false,
+			expected: []models.SQLTask{
+				{
+					SQL:      "INSERT INTO test_table VALUES (1)",
+					Type:     models.SQLTypeExec,
+					LineNum:  1,
 					Filename: "", // 将在测试中设置
 				},
 			},

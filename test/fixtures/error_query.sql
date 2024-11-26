@@ -1,2 +1,2 @@
 -- error query
-select sysdate from duals
+select * from non_existent_table
