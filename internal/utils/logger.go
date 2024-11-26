@@ -52,8 +52,19 @@ type Logger struct {
 	verbose bool
 }
 
+const (
+	DefaultLogFile = "sql-runner.log"
+)
+
 // NewLogger 创建新的日志记录器
 func NewLogger(logFile string, level string, verbose bool) (*Logger, error) {
+	var writer io.Writer
+
+	// 如果未指定日志文件，使用默认日志文件
+	if logFile == "" {
+		logFile = DefaultLogFile
+	}
+
 	// 创建日志目录
 	if err := os.MkdirAll(filepath.Dir(logFile), 0o755); err != nil {
 		return nil, fmt.Errorf("创建日志目录失败: %w", err)
@@ -66,7 +77,6 @@ func NewLogger(logFile string, level string, verbose bool) (*Logger, error) {
 	}
 
 	// 设置输出writer
-	var writer io.Writer
 	if verbose {
 		writer = io.MultiWriter(file, os.Stdout)
 	} else {
