@@ -47,6 +47,9 @@ func (m *Metrics) AddQuery(duration time.Duration, success bool) {
 
 // Duration 获取总执行时间
 func (m *Metrics) Duration() time.Duration {
+	if m.EndTime.IsZero() {
+		return time.Since(m.StartTime)
+	}
 	return m.EndTime.Sub(m.StartTime)
 }
 

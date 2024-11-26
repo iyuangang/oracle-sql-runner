@@ -63,6 +63,7 @@ func (e *Executor) ExecuteFile(path string) *models.Result {
 		"success", result.Success,
 		"failed", result.Failed,
 		"duration", e.metrics.Duration())
+	result.Duration = e.metrics.Duration()
 
 	return result
 }

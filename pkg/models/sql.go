@@ -29,6 +29,7 @@ type Result struct {
 	Errors    []error
 	StartTime time.Time
 	EndTime   time.Time
+	Duration  time.Duration
 }
 
 // NewResult 创建新的结果对象
@@ -56,12 +57,11 @@ func (r *Result) Finish() {
 
 // Print 打印结果
 func (r *Result) Print() {
-	duration := r.EndTime.Sub(r.StartTime)
-
 	fmt.Printf("\n执行结果:\n")
-	fmt.Printf("总执行时间: %v\n", duration)
+	fmt.Printf("总语句数: %d\n", r.Success+r.Failed)
 	fmt.Printf("成功: %d\n", r.Success)
 	fmt.Printf("失败: %d\n", r.Failed)
+	fmt.Printf("总执行时间: %.2f秒\n", r.Duration.Seconds())
 
 	if r.Failed > 0 {
 		fmt.Printf("\n错误详情:\n")
