@@ -1,134 +1,149 @@
 # Oracle SQL Runner
 
-[![Build Status](https://github.com/iyuangang/oracle-sql-runner/workflows/Build/badge.svg)](https://github.com/iyuangang/oracle-sql-runner/actions)
+[![Build](https://github.com/iyuangang/oracle-sql-runner/actions/workflows/build.yml/badge.svg)](https://github.com/iyuangang/oracle-sql-runner/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/iyuangang/oracle-sql-runner)](https://github.com/iyuangang/oracle-sql-runner/releases)
 [![Go Report Card](https://goreportcard.com/badge/github.com/iyuangang/oracle-sql-runner)](https://goreportcard.com/report/github.com/iyuangang/oracle-sql-runner)
 [![License](https://img.shields.io/github/license/iyuangang/oracle-sql-runner)](LICENSE)
 
-一个强大的Oracle SQL脚本执行工具，支持并行执行、多数据库环境管理、事务控制等特性。
+Oracle SQL Runner 是一个高性能的 Oracle SQL 脚本执行工具，支持并行执行、错误重试、PL/SQL 块等特性。
 
 ## 特性
 
-- 🚀 支持并行执行SQL语句
-- 🔒 安全的密码加密存储
-- 📝 支持所有Oracle SQL类型
-  - DDL (CREATE, ALTER, DROP等)
-  - DML (INSERT, UPDATE, DELETE等)
-  - DCL (GRANT, REVOKE等)
-  - PL/SQL块和匿名块
-- 🔄 自动重试机制
-- 📊 详细的执行统计
-- 🎯 进度显示
-- 🌐 多数据库环境配置
-- 💾 连接池管理
+- 支持并行执行 SQL 语句
+- 自动识别和处理 PL/SQL 块
+- 智能错误重试机制
+- 详细的执行日志和性能指标
+- 支持查询结果显示
+- 跨平台支持 (Linux, Windows, macOS)
 
 ## 安装
 
-### 从源码编译
+### 从二进制安装
+
+从 [Releases](https://github.com/iyuangang/oracle-sql-runner/releases) 页面下载对应平台的二进制文件。
+
+### 从源码构建
+
+需要 Go 1.22 或更高版本：
 
 ```bash
-# 克隆仓库
 git clone https://github.com/iyuangang/oracle-sql-runner.git
 cd oracle-sql-runner
-
-# 安装依赖
-go mod download
-
-# 编译
-go build -o sql-runner .\cmd\sql-runner\
+go build ./cmd/sql-runner
 ```
 
-### 下载预编译版本
+## 配置
 
-访问 [Releases](https://github.com/iyuangang/oracle-sql-runner/releases) 页面下载适合您系统的版本。
-
-## 快速开始
-
-1. 创建配置文件 `config.json`:
+创建 `config.json` 配置文件：
 
 ```json
 {
   "databases": {
-    "dev": {
-      "name": "开发环境",
-      "user": "dev_user",
-      "password": "encrypted_password",
-      "host": "dev-oracle.example.com",
+    "prod": {
+      "name": "生产环境",
+      "user": "your_username",
+      "password": "your_password",
+      "host": "localhost",
       "port": 1521,
-      "service": "DEV"
+      "service": "ORCLPDB1",
+      "max_connections": 5,
+      "idle_timeout": 300
     }
-  }
+  },
+  "max_retries": 3,
+  "max_concurrent": 5,
+  "batch_size": 1000,
+  "timeout": 30,
+  "log_level": "info",
+  "log_file": "logs/sql-runner.log"
 }
 ```
 
-2. 执行SQL文件:
+### 配置说明
+
+- `databases`: 数据库配置列表
+  - `name`: 数据库描述
+  - `user`: 用户名
+  - `password`: 密码
+  - `host`: 主机地址
+  - `port`: 端口号
+  - `service`: 服务名
+  - `max_connections`: 最大连接数
+  - `idle_timeout`: 空闲超时时间(秒)
+- `max_retries`: 最大重试次数
+- `max_concurrent`: 最大并发执行数
+- `batch_size`: 批处理大小
+- `timeout`: SQL 执行超时时间(秒)
+- `log_level`: 日志级别 (debug/info/warn/error)
+- `log_file`: 日志文件路径
+
+## 使用方法
+
+### 基本用法
 
 ```bash
-# 基本用法
-./sql-runner -d dev -f script.sql
-
-# 指定配置文件
-./sql-runner -c custom-config.json -d prod -f script.sql
-
-# 并行执行
-./sql-runner -d dev -f script.sql -p 4
-
-# 显示详细输出
-./sql-runner -d dev -f script.sql -v
+sql-runner -f script.sql -d prod
 ```
 
-## 配置说明
+### 命令行参数
 
-### 数据库配置
-
-```json
-{
-  "name": "数据库名称",
-  "user": "用户名",
-  "password": "密码",
-  "host": "主机地址",
-  "port": 1521,
-  "service": "服务名",
-  "auto_commit": true,
-  "max_retries": 3,
-  "timeout_seconds": 30,
-  "enable_dbms_output": true,
-  "max_connections": 10
-}
-```
-
-### 执行配置
-
-```json
-{
-  "parallel_degree": 4,
-  "batch_size": 1000,
-  "max_file_size": 104857600,
-  "retry_interval_seconds": 5
-}
-```
-
-## 命令行参数
-
-```
+```bash
 Usage:
   sql-runner [flags]
-  sql-runner [command]
-
-Available Commands:
-  help            帮助信息
-  version         显示版本信息
-  test-connection 测试数据库连接
 
 Flags:
   -c, --config string    配置文件路径 (默认 "config.json")
   -d, --database string  数据库名称
-  -f, --file string     SQL文件路径
-  -p, --parallel int    并行度 (默认 1)
-  -v, --verbose        显示详细输出
-      --no-progress    不显示进度条
-      --validate       仅验证SQL语法
-  -o, --output string  输出格式 (text/json)
-  -h, --help          帮助信息
+  -f, --file string      SQL文件路径
+  -h, --help            帮助信息
+  -v, --verbose         显示详细信息
+      --version         版本信息
+```
+
+### SQL 文件格式
+
+支持三种类型的 SQL 语句：
+
+1. 普通查询
+```sql
+SELECT * FROM employees;
+```
+
+2. DML/DDL 语句
+```sql
+CREATE TABLE test_table (
+    id NUMBER PRIMARY KEY,
+    name VARCHAR2(100)
+);
+```
+
+3. PL/SQL 块
+```sql
+CREATE OR REPLACE PROCEDURE test_proc AS
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('Hello World');
+END;
+/
+```
+
+## 日志输出
+
+日志以 JSON 格式输出，包含详细的执行信息：
+
+```json
+{
+    "time": "2024-11-26T09:46:38.7720375+08:00",
+    "level": "INFO",
+    "source": {
+        "function": "core.(*Executor).ExecuteFile",
+        "file": "internal/core/executor.go",
+        "line": 123
+    },
+    "msg": "SQL文件执行完成",
+    "success": 33,
+    "failed": 1,
+    "duration": 3827597300
+}
 ```
 
 ## 开发
@@ -136,7 +151,11 @@ Flags:
 ### 运行测试
 
 ```bash
-go test ./... -v
+# 运行单元测试
+go test ./...
+
+# 运行集成测试
+go test -tags=integration ./...
 ```
 
 ### 构建发布版本
@@ -145,10 +164,16 @@ go test ./... -v
 make release
 ```
 
-## 贡献
-
-欢迎提交 Pull Request 和 Issue！
-
 ## 许可证
 
-本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件
+本项目采用 MIT 许可证，详见 [LICENSE](LICENSE) 文件。
+
+## 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+## 鸣谢
+
+- [godror](https://github.com/godror/godror) 提供了 Oracle 数据库的 Go 驱动
+- [cobra](https://github.com/spf13/cobra) 提供了命令行解析库
+- [slog](https://github.com/slog/slog) 提供了高性能的日志库

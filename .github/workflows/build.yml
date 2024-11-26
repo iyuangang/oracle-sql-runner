@@ -4,11 +4,33 @@ on:
   push:
     branches: [ main, dev ]
     tags: [ 'v*' ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/**'
+      - 'LICENSE'
   pull_request:
     branches: [ main, dev ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/**'
+      - 'LICENSE'
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    if: |
+      !startsWith(github.event.head_commit.message, 'docs:') &&
+      !startsWith(github.event.head_commit.message, 'ci:') &&
+      !startsWith(github.event.head_commit.message, 'chore:') &&
+      !startsWith(github.event.head_commit.message, 'style:') &&
+      !contains(github.event.head_commit.message, 'skip ci')
+    steps:
+      - run: echo "Commit message allows CI to proceed"
+
   build:
+    needs: check
     name: Build
     runs-on: ${{ matrix.os }}
     strategy:
@@ -47,6 +69,7 @@ jobs:
         path: ${{ matrix.asset_name }}
 
   build-rocky8:
+    needs: check
     name: Build Rocky 8
     runs-on: ubuntu-latest
     container: rockylinux:8
