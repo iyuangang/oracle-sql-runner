@@ -63,7 +63,7 @@ jobs:
         go build -v -o ${{ matrix.asset_name }} -ldflags="-s -w" ./cmd/sql-runner/
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.asset_name }}
         path: ${{ matrix.asset_name }}
@@ -91,7 +91,7 @@ jobs:
         go build -v -o sql-runner-rocky8-amd64 -ldflags="-s -w" ./cmd/sql-runner/
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: sql-runner-rocky8-amd64
         path: sql-runner-rocky8-amd64
