@@ -19,6 +19,8 @@ var (
 	sqlFile    string
 	dbName     string
 	verbose    bool
+
+	osExit = os.Exit
 )
 
 var rootCmd = &cobra.Command{
@@ -84,6 +86,6 @@ func init() {
 func main() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
-		os.Exit(1)
+		osExit(1)
 	}
 }
