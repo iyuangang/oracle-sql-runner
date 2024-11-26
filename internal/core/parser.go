@@ -83,6 +83,7 @@ func ParseFile(path string) ([]models.SQLTask, error) {
 	var sqlBuffer strings.Builder
 	lineNum := 0
 	inPLSQLBlock := false
+	hasContent := false
 
 	for scanner.Scan() {
 		lineNum++
@@ -92,6 +93,8 @@ func ParseFile(path string) ([]models.SQLTask, error) {
 		if line == "" || strings.HasPrefix(line, "--") {
 			continue
 		}
+
+		hasContent = true
 
 		// 检查是否进入PL/SQL块
 		upperLine := strings.ToUpper(line)
@@ -123,6 +126,7 @@ func ParseFile(path string) ([]models.SQLTask, error) {
 			})
 			sqlBuffer.Reset()
 			inPLSQLBlock = false
+			hasContent = false
 			continue
 		}
 
@@ -143,7 +147,24 @@ func ParseFile(path string) ([]models.SQLTask, error) {
 				Filename: path,
 			})
 			sqlBuffer.Reset()
+			hasContent = false
 		}
+	}
+
+	// 处理文件末尾的最后一条语句（如果没有分号）
+	if hasContent {
+		sql := strings.TrimSpace(sqlBuffer.String())
+		sqlType := models.SQLTypeExec
+		if strings.HasPrefix(strings.ToUpper(sql), "SELECT") {
+			sqlType = models.SQLTypeQuery
+		}
+
+		tasks = append(tasks, models.SQLTask{
+			SQL:      normalizeSQL(sql, sqlType),
+			Type:     sqlType,
+			LineNum:  lineNum,
+			Filename: path,
+		})
 	}
 
 	return tasks, scanner.Err()

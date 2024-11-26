@@ -16,7 +16,7 @@ func TestExecutor(t *testing.T) {
 	}
 
 	// 加载测试配置
-	cfg, err := config.Load("../../config.test.json")
+	cfg, err := config.Load("../../config.json")
 	if err != nil {
 		t.Fatalf("加载配置失败: %v", err)
 	}
@@ -67,6 +67,54 @@ func TestExecutor(t *testing.T) {
 		{
 			name:    "PL/SQL块测试",
 			sqlFile: "../fixtures/plsql_block.sql",
+			wantErr: false,
+			expected: struct {
+				success int
+				failed  int
+			}{
+				success: 1,
+				failed:  0,
+			},
+		},
+		{
+			name:    "多语句测试",
+			sqlFile: "../fixtures/multi_statements.sql",
+			wantErr: false,
+			expected: struct {
+				success int
+				failed  int
+			}{
+				success: 35,
+				failed:  0,
+			},
+		},
+		{
+			name:    "错误查询测试",
+			sqlFile: "../fixtures/error_query.sql",
+			wantErr: true,
+			expected: struct {
+				success int
+				failed  int
+			}{
+				success: 0,
+				failed:  1,
+			},
+		},
+		{
+			name:    "空文件测试",
+			sqlFile: "../fixtures/empty_file.sql",
+			wantErr: false,
+			expected: struct {
+				success int
+				failed  int
+			}{
+				success: 0,
+				failed:  0,
+			},
+		},
+		{
+			name:    "单语句无分号测试",
+			sqlFile: "../fixtures/one_statement_without_semicolon.sql",
 			wantErr: false,
 			expected: struct {
 				success int
