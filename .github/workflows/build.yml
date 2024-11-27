@@ -81,6 +81,28 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
+    # 安装 C 编译器和依赖
+    - name: Install build dependencies (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-multilib gcc-aarch64-linux-gnu
+
+    - name: Install build dependencies (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        brew install clang
+
+    - name: Install build dependencies (Windows)
+      if: matrix.os == 'windows-latest'
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        install: >-
+          mingw-w64-x86_64-gcc
+          make
+
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
@@ -92,15 +114,37 @@ jobs:
     - name: Set binary name
       shell: bash
       run: |
-        # 设置基础名称
         BASE_NAME="sql-runner-${{ needs.check.outputs.version}}-${{ matrix.platform }}-${{ matrix.arch }}"
-        
-        # 根据操作系统添加扩展名
         if [[ "${{ matrix.platform }}" == "windows" ]]; then
           echo "BINARY_NAME=${BASE_NAME}.exe" >> $GITHUB_ENV
         else
           echo "BINARY_NAME=${BASE_NAME}" >> $GITHUB_ENV
         fi
+
+    - name: Set CGO environment (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        if [ "${{ matrix.arch }}" = "arm64" ]; then
+          echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CGO_ENABLED=1" >> $GITHUB_ENV
+        else
+          echo "CC=gcc" >> $GITHUB_ENV
+          echo "CGO_ENABLED=1" >> $GITHUB_ENV
+        fi
+
+    - name: Set CGO environment (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        echo "CC=clang" >> $GITHUB_ENV
+        echo "CGO_ENABLED=1" >> $GITHUB_ENV
+
+    - name: Set CGO environment (Windows)
+      if: matrix.os == 'windows-latest'
+      shell: bash
+      run: |
+        echo "CC=gcc" >> $GITHUB_ENV
+        echo "CGO_ENABLED=1" >> $GITHUB_ENV
+        echo "PATH=$PATH:/c/msys64/mingw64/bin" >> $GITHUB_ENV
 
     - name: Build
       shell: bash
@@ -128,7 +172,7 @@ jobs:
     steps:
     - name: Install dependencies
       run: |
-        yum install -y gcc git make
+        yum install -y gcc gcc-c++ git make curl
         curl -L https://go.dev/dl/go1.22.9.linux-amd64.tar.gz | tar -C /usr/local -xzf -
         export PATH=$PATH:/usr/local/go/bin
 
@@ -139,6 +183,8 @@ jobs:
       run: |
         rm -rf .git
         export PATH=$PATH:/usr/local/go/bin
+        export CGO_ENABLED=1
+        export CC=gcc
         go mod download
         
         BINARY_NAME="sql-runner-${{ needs.check.outputs.version}}-rocky8-amd64"
