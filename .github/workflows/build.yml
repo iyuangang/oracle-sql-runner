@@ -148,7 +148,6 @@ jobs:
                  -X main.Commit=${{ needs.check.outputs.commit }} \
                  -X main.BuildTime=${{ needs.check.outputs.build_time }} \
                  -s -w"
-        GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} \
         go build -v -o "${BINARY_NAME}" -ldflags="${LDFLAGS}" ./cmd/sql-runner/
 
     - name: Upload artifact
