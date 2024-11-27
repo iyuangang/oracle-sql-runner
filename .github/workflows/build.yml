@@ -42,7 +42,7 @@ jobs:
           # 获取版本号（如果有标签就用标签，否则用 commit id）
           VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
           COMMIT=$(git rev-parse --short HEAD)
-          BUILD_TIME=$(date -u '+%Y-%m-%d_%H:%M:%S')
+          BUILD_TIME=$(date -u --iso-8601=ns)
           
           # 构建版本后缀
           if [[ "${VERSION}" == "dev" ]]; then
@@ -139,7 +139,17 @@ jobs:
     needs: check
     name: Build Rocky 8
     runs-on: ubuntu-latest
-    container: rockylinux:8
+    strategy:
+      matrix:
+        arch: [ amd64, arm64 ]
+        include:
+          - arch: amd64
+            container: rockylinux:8
+            go_arch: amd64
+          - arch: arm64
+            container: rockylinux:8
+            go_arch: arm64
+    container: ${{ matrix.container }}
 
     steps:
     - name: Install dependencies
@@ -159,7 +169,7 @@ jobs:
         export CC=gcc
         go mod download
         
-        BINARY_NAME="sql-runner-${{ needs.check.outputs.version}}-rocky8-amd64"
+        BINARY_NAME="sql-runner-${{ needs.check.outputs.version}}-rocky8-${{ matrix.arch }}"
         
         LDFLAGS="-X main.Version=${{ needs.check.outputs.version }} \
                  -X main.Commit=${{ needs.check.outputs.commit }} \
@@ -170,8 +180,8 @@ jobs:
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: sql-runner-${{ needs.check.outputs.version}}-rocky8-amd64
-        path: sql-runner-${{ needs.check.outputs.version}}-rocky8-amd64
+        name: sql-runner-${{ needs.check.outputs.version}}-rocky8-${{ matrix.arch }}
+        path: sql-runner-${{ needs.check.outputs.version}}-rocky8-${{ matrix.arch }}
         compression-level: 9
 
   release:
@@ -187,12 +197,20 @@ jobs:
     steps:
     - name: Download all artifacts
       uses: actions/download-artifact@v4
+      
+    - name: Generate checksums
+      run: |
+        for file in sql-runner*/*; do
+          sha256sum "$file" >> checksums.txt
+        done
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
         files: |
           sql-runner*/*
+          checksums.txt
+        body_path: CHANGELOG.md
         draft: false
         prerelease: false
         generate_release_notes: true
