@@ -184,8 +184,90 @@ jobs:
         path: sql-runner-${{ needs.check.outputs.version}}-rocky8-${{ matrix.arch }}
         compression-level: 9
 
+  changelog:
+    needs: check
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    outputs:
+      release_notes: ${{ steps.changelog.outputs.changelog }}
+    
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # 获取完整历史用于生成变更日志
+
+      - name: Get previous tag
+        id: previoustag
+        run: |
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          echo "previous_tag=${PREVIOUS_TAG}" >> $GITHUB_OUTPUT
+          echo "Previous tag: ${PREVIOUS_TAG}"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # 如果有上一个标签，则获取从上一个标签到现在的提交
+          if [ -n "${{ steps.previoustag.outputs.previous_tag }}" ]; then
+            RANGE="${{ steps.previoustag.outputs.previous_tag }}..HEAD"
+          else
+            # 如果没有上一个标签，获取所有提交
+            RANGE="HEAD"
+          fi
+          
+          # 生成变更日志
+          echo "## What's Changed" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          
+          # 按类型分类提交
+          echo "### 🚀 Features" >> CHANGELOG.md
+          git log ${RANGE} --pretty=format:"* %s" --grep="^feat:" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          
+          echo "### 🐛 Bug Fixes" >> CHANGELOG.md
+          git log ${RANGE} --pretty=format:"* %s" --grep="^fix:" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          
+          echo "### 📝 Documentation" >> CHANGELOG.md
+          git log ${RANGE} --pretty=format:"* %s" --grep="^docs:" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          
+          echo "### ⚡ Performance" >> CHANGELOG.md
+          git log ${RANGE} --pretty=format:"* %s" --grep="^perf:" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          
+          echo "### 🔨 Other Changes" >> CHANGELOG.md
+          git log ${RANGE} --pretty=format:"* %s" \
+            --grep="^refactor:" \
+            --grep="^style:" \
+            --grep="^test:" \
+            --grep="^chore:" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          
+          # 添加贡献者列表
+          echo "### 👥 Contributors" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          git log ${RANGE} --pretty=format:"* %an" | sort -u >> CHANGELOG.md
+          
+          # 将变更日志内容存储为输出
+          CHANGELOG=$(cat CHANGELOG.md)
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Upload changelog
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog
+          path: CHANGELOG.md
+          retention-days: 1
+
   release:
-    needs: [build, build-rocky8]
+    needs: [build, build-rocky8, changelog]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     
@@ -210,7 +292,7 @@ jobs:
         files: |
           sql-runner*/*
           checksums.txt
-        body_path: CHANGELOG.md
-        draft: false
+        body: ${{ needs.changelog.outputs.release_notes }}
+        draft: true
         prerelease: false
-        generate_release_notes: true
+        generate_release_notes: false  # 使用我们自己生成的变更日志
