@@ -1,0 +1,20 @@
+# commit message format: <type>(<scope>): <subject>
+# 
+# type can be:
+#   feat:     new feature
+#   fix:      bug fix
+#   docs:     documentation update
+#   style:    code format (no impact on code running)
+#   refactor: refactor (neither new feature nor bug fix)
+#   perf:     performance optimization
+#   test:     add test
+#   chore:    build process or auxiliary tool change
+#
+# scope is optional, for example:
+#   feat(api): add user authentication interface
+#   fix(db): fix database connection leak
+#
+# subject is a short description of the change:
+#   - use present tense ("add" instead of "added")
+#   - do not capitalize the first letter
+#   - do not end with a period 
