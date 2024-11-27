@@ -11,7 +11,9 @@ import (
 )
 
 var (
+	// 版本信息，通过编译时注入
 	Version   = "dev"
+	Commit    = "none"
 	BuildTime = "unknown"
 
 	// 命令行参数
@@ -19,61 +21,66 @@ var (
 	sqlFile    string
 	dbName     string
 	verbose    bool
-
-	osExit = os.Exit
+	osExit     = os.Exit
 )
 
 var rootCmd = &cobra.Command{
-	Use:     "sql-runner",
-	Short:   "Oracle SQL 脚本执行工具",
+	Use:   "sql-runner",
+	Short: "Oracle SQL 脚本执行工具",
+	Long: fmt.Sprintf(`Oracle SQL 脚本执行工具
+版本: %s
+提交: %s
+构建时间: %s`, Version, Commit, BuildTime),
 	Version: Version,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// 验证必要参数
-		if sqlFile == "" {
-			return fmt.Errorf("请指定SQL文件路径 (-f)")
-		}
+	RunE:    run,
+}
 
-		if dbName == "" {
-			return fmt.Errorf("请指定数据库名称 (-d)")
-		}
+func run(cmd *cobra.Command, args []string) error {
+	// 验证必要参数
+	if sqlFile == "" {
+		return fmt.Errorf("请指定SQL文件路径 (-f)")
+	}
 
-		// 加载配置
-		cfg, err := config.Load(configFile)
-		if err != nil {
-			return fmt.Errorf("加载配置失败: %v", err)
-		}
+	if dbName == "" {
+		return fmt.Errorf("请指定数据库名称 (-d)")
+	}
 
-		// 创建日志目录和初始化日志
-		logger, err := utils.NewLogger(cfg.LogFile, cfg.LogLevel, verbose)
-		if err != nil {
-			return fmt.Errorf("初始化日志失败: %v", err)
-		}
-		defer logger.Close()
+	// 加载配置
+	cfg, err := config.Load(configFile)
+	if err != nil {
+		return fmt.Errorf("加载配置失败: %v", err)
+	}
 
-		logger.Info("启动SQL Runner",
-			"version", Version,
-			"build_time", BuildTime,
-			"config", configFile,
-			"sql_file", sqlFile,
-			"database", dbName)
+	// 创建日志目录和初始化日志
+	logger, err := utils.NewLogger(cfg.LogFile, cfg.LogLevel, verbose)
+	if err != nil {
+		return fmt.Errorf("初始化日志失败: %v", err)
+	}
+	defer logger.Close()
 
-		// 创建执行器
-		executor, err := core.NewExecutor(cfg, dbName, logger)
-		if err != nil {
-			return fmt.Errorf("创建执行器失败: %v", err)
-		}
-		defer executor.Close()
+	logger.Info("启动SQL Runner",
+		"version", Version,
+		"build_time", BuildTime,
+		"config", configFile,
+		"sql_file", sqlFile,
+		"database", dbName)
 
-		// 执行SQL文件
-		result := executor.ExecuteFile(sqlFile)
-		result.Print()
+	// 创建执行器
+	executor, err := core.NewExecutor(cfg, dbName, logger)
+	if err != nil {
+		return fmt.Errorf("创建执行器失败: %v", err)
+	}
+	defer executor.Close()
 
-		if result.Failed > 0 {
-			return fmt.Errorf("执行失败")
-		}
+	// 执行SQL文件
+	result := executor.ExecuteFile(sqlFile)
+	result.Print()
 
-		return nil
-	},
+	if result.Failed > 0 {
+		return fmt.Errorf("执行失败")
+	}
+
+	return nil
 }
 
 func init() {

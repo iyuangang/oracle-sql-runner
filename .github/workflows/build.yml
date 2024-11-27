@@ -26,8 +26,41 @@ jobs:
       !startsWith(github.event.head_commit.message, 'chore:') &&
       !startsWith(github.event.head_commit.message, 'style:') &&
       !contains(github.event.head_commit.message, 'skip ci')
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      commit: ${{ steps.version.outputs.commit }}
+      build_time: ${{ steps.version.outputs.build_time }}
+      version_suffix: ${{ steps.version.outputs.version_suffix }}
+    
     steps:
-      - run: echo "Commit message allows CI to proceed"
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # 获取完整的 git 历史用于版本标签
+
+      - name: Get version info
+        id: version
+        run: |
+          # 获取版本号（如果有标签就用标签，否则用 commit id）
+          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+          COMMIT=$(git rev-parse --short HEAD)
+          BUILD_TIME=$(date -u '+%Y-%m-%d_%H:%M:%S')
+          
+          # 构建版本后缀
+          if [[ "${VERSION}" == "dev" ]]; then
+            VERSION_SUFFIX="dev-${COMMIT}"
+          else
+            VERSION_SUFFIX="${VERSION}-${COMMIT}"
+          fi
+          
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "commit=${COMMIT}" >> $GITHUB_OUTPUT
+          echo "build_time=${BUILD_TIME}" >> $GITHUB_OUTPUT
+          echo "version_suffix=${VERSION_SUFFIX}" >> $GITHUB_OUTPUT
+          
+          echo "Version: ${VERSION}"
+          echo "Commit: ${COMMIT}"
+          echo "Build Time: ${BUILD_TIME}"
+          echo "Version Suffix: ${VERSION_SUFFIX}"
 
   build:
     needs: check
@@ -36,16 +69,17 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        arch: [amd64, arm64]
         include:
           - os: ubuntu-latest
-            artifact_name: sql-runner
-            asset_name: sql-runner-linux-amd64
+            platform: linux
           - os: windows-latest
-            artifact_name: sql-runner.exe
-            asset_name: sql-runner-windows-amd64.exe
+            platform: windows
           - os: macos-latest
-            artifact_name: sql-runner
-            asset_name: sql-runner-darwin-amd64
+            platform: darwin
+        exclude:
+          - os: windows-latest
+            arch: arm64  # Windows 暂不构建 arm64 版本
 
     steps:
     - uses: actions/checkout@v3
@@ -58,15 +92,34 @@ jobs:
     - name: Install dependencies
       run: go mod download
 
-    - name: Build
+    - name: Set binary name
+      shell: bash
       run: |
-        go build -v -o ${{ matrix.asset_name }} -ldflags="-s -w" ./cmd/sql-runner/
+        # 设置基础名称
+        BASE_NAME="sql-runner-${{ needs.check.outputs.version_suffix }}-${{ matrix.platform }}-${{ matrix.arch }}"
+        
+        # 根据操作系统添加扩展名
+        if [[ "${{ matrix.platform }}" == "windows" ]]; then
+          echo "BINARY_NAME=${BASE_NAME}.exe" >> $GITHUB_ENV
+        else
+          echo "BINARY_NAME=${BASE_NAME}" >> $GITHUB_ENV
+        fi
+
+    - name: Build
+      shell: bash
+      run: |
+        LDFLAGS="-X main.Version=${{ needs.check.outputs.version }} \
+                 -X main.Commit=${{ needs.check.outputs.commit }} \
+                 -X main.BuildTime=${{ needs.check.outputs.build_time }} \
+                 -s -w"
+        GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} \
+        go build -v -o "${BINARY_NAME}" -ldflags="${LDFLAGS}" ./cmd/sql-runner/
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.asset_name }}
-        path: ${{ matrix.asset_name }}
+        name: ${{ env.BINARY_NAME }}
+        path: ${{ env.BINARY_NAME }}
         compression-level: 9
 
   build-rocky8:
@@ -85,17 +138,25 @@ jobs:
     - uses: actions/checkout@v3
 
     - name: Build
+      shell: bash
       run: |
         rm -rf .git
         export PATH=$PATH:/usr/local/go/bin
         go mod download
-        go build -v -o sql-runner-rocky8-amd64 -ldflags="-s -w" ./cmd/sql-runner/
+        
+        BINARY_NAME="sql-runner-${{ needs.check.outputs.version_suffix }}-rocky8-amd64"
+        
+        LDFLAGS="-X main.Version=${{ needs.check.outputs.version }} \
+                 -X main.Commit=${{ needs.check.outputs.commit }} \
+                 -X main.BuildTime=${{ needs.check.outputs.build_time }} \
+                 -s -w"
+        go build -v -o "${BINARY_NAME}" -ldflags="${LDFLAGS}" ./cmd/sql-runner/
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: sql-runner-rocky8-amd64
-        path: sql-runner-rocky8-amd64
+        name: sql-runner-${{ needs.check.outputs.version_suffix }}-rocky8-amd64
+        path: sql-runner-${{ needs.check.outputs.version_suffix }}-rocky8-amd64
         compression-level: 9
 
   release:
