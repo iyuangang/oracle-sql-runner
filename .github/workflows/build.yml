@@ -81,28 +81,6 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    # 安装 C 编译器和依赖
-    - name: Install build dependencies (Ubuntu)
-      if: matrix.os == 'ubuntu-latest'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y clang
-
-    - name: Install build dependencies (macOS)
-      if: matrix.os == 'macos-latest'
-      run: |
-        brew install gcc
-
-    - name: Install build dependencies (Windows)
-      if: matrix.os == 'windows-latest'
-      uses: msys2/setup-msys2@v2
-      with:
-        msystem: MINGW64
-        update: true
-        install: >-
-          mingw-w64-x86_64-gcc
-          make
-
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
