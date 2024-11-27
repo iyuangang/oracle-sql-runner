@@ -155,7 +155,10 @@ func TestResult_Print(t *testing.T) {
 			outputChan := make(chan string)
 			go func() {
 				var buf bytes.Buffer
-				io.Copy(&buf, r)
+				_, err := io.Copy(&buf, r)
+				if err != nil {
+					t.Errorf("io.Copy error: %v", err)
+				}
 				outputChan <- buf.String()
 			}()
 
