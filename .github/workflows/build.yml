@@ -86,12 +86,12 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y gcc-multilib gcc-aarch64-linux-gnu
+        sudo apt-get install -y gcc
 
     - name: Install build dependencies (macOS)
       if: matrix.os == 'macos-latest'
       run: |
-        brew install clang
+        brew install gcc
 
     - name: Install build dependencies (Windows)
       if: matrix.os == 'windows-latest'
@@ -125,7 +125,7 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         if [ "${{ matrix.arch }}" = "arm64" ]; then
-          echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CC=gcc" >> $GITHUB_ENV
           echo "CGO_ENABLED=1" >> $GITHUB_ENV
         else
           echo "CC=gcc" >> $GITHUB_ENV
@@ -135,7 +135,7 @@ jobs:
     - name: Set CGO environment (macOS)
       if: matrix.os == 'macos-latest'
       run: |
-        echo "CC=clang" >> $GITHUB_ENV
+        echo "CC=gcc" >> $GITHUB_ENV
         echo "CGO_ENABLED=1" >> $GITHUB_ENV
 
     - name: Set CGO environment (Windows)

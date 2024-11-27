@@ -158,8 +158,8 @@ func TestResult_Print(t *testing.T) {
 				_, err := io.Copy(&buf, r)
 				if err != nil {
 					t.Errorf("io.Copy error: %v", err)
-				}
 
+				}
 				outputChan <- buf.String()
 			}()
 
