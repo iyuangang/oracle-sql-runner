@@ -40,7 +40,7 @@ jobs:
         id: version
         run: |
           # 获取版本号（如果有标签就用标签，否则用 commit id）
-          VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")
+          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
           COMMIT=$(git rev-parse --short HEAD)
           BUILD_TIME=$(date -u '+%Y-%m-%d_%H:%M:%S')
           
