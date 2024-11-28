@@ -63,7 +63,7 @@ jobs:
               (ADDRESS = (PROTOCOL = TCP)(HOST = localhost)(PORT = 1521))
               (CONNECT_DATA =
                 (SERVER = DEDICATED)
-                (SERVICE_NAME = XE)
+                (SERVICE_NAME = FREEPDB1)
               )
             )" | sudo tee /opt/oracle/instantclient_21_9/network/admin/tnsnames.ora
 
@@ -74,11 +74,11 @@ jobs:
             "databases": {
               "test": {
                 "name": "测试库",
-                "user": "test",
-                "password": "test123",
+                "user": "system",
+                "password": "oracle",
                 "host": "localhost",
                 "port": 1521,
-                "service": "XE"
+                "service": "FREEPDB1"
               }
             },
             "max_retries": 3,
