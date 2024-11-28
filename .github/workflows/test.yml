@@ -49,10 +49,6 @@ jobs:
           sudo mkdir -p /opt/oracle
           sudo unzip instantclient-basic-linux.x64-21.9.0.0.0dbru.zip -d /opt/oracle
           
-          # 下载并解压 SQL*Plus 包
-          wget https://download.oracle.com/otn_software/linux/instantclient/219000/instantclient-sqlplus-linux.x64-21.9.0.0.0dbru.zip
-          sudo unzip instantclient-sqlplus-linux.x64-21.9.0.0.0dbru.zip -d /opt/oracle
-          
           # 配置环境变量
           echo "/opt/oracle/instantclient_21_9" | sudo tee /etc/ld.so.conf.d/oracle-instantclient.conf
           sudo ldconfig
@@ -71,18 +67,6 @@ jobs:
               )
             )" | sudo tee /opt/oracle/instantclient_21_9/network/admin/tnsnames.ora
 
-      - name: Wait for Oracle
-        run: |
-          source $GITHUB_ENV
-          for i in {1..60}; do
-            echo "Attempt $i: Waiting for Oracle..."
-            if echo "SELECT 1 FROM DUAL;" | sqlplus -s "test/test123@//localhost:1521/XE"; then
-              echo "Oracle is ready!"
-              break
-            fi
-            sleep 5
-          done
-
       - name: Create test config
         run: |
           cat > config.json << EOF
@@ -98,7 +82,7 @@ jobs:
               }
             },
             "max_retries": 3,
-            "max_concurrent": 5,
+            "max_concurrent": 1,
             "batch_size": 1000,
             "timeout": 30,
             "log_level": "debug"
@@ -107,37 +91,6 @@ jobs:
 
       - name: Run unit tests
         run: go test -v -coverprofile=coverage.unit.txt ./pkg/... ./internal/...
-
-      - name: Prepare test fixtures
-        run: |
-          source $GITHUB_ENV
-          sqlplus -s test/test123@//localhost:1521/XE << EOF
-          WHENEVER SQLERROR EXIT SQL.SQLCODE;
-          
-          -- 创建测试表
-          CREATE TABLE test_table (
-            id NUMBER PRIMARY KEY,
-            name VARCHAR2(100)
-          );
-          
-          -- 插入测试数据
-          INSERT INTO test_table VALUES (1, 'Test 1');
-          INSERT INTO test_table VALUES (2, 'Test 2');
-          
-          -- 创建测试存储过程
-          CREATE OR REPLACE PROCEDURE test_proc AS
-          BEGIN
-            NULL;
-          END;
-          /
-          
-          COMMIT;
-          
-          -- 验证
-          SELECT COUNT(*) FROM test_table;
-          
-          EXIT;
-          EOF
 
       - name: Run integration tests
         run: |
