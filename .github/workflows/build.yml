@@ -188,8 +188,12 @@ jobs:
         run: |
           dnf install -y epel-release
           dnf install -y gcc-aarch64-linux-gnu
-          echo "CC=gcc-aarch64-linux-gnu" >> $GITHUB_ENV
           echo "GOARCH=arm64" >> $GITHUB_ENV
+          echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "GOFLAGS=-buildmode=pie" >> $GITHUB_ENV
+          echo "CGO_CFLAGS=-O2 -g" >> $GITHUB_ENV
+          echo "CGO_CPPFLAGS=-O2 -g" >> $GITHUB_ENV
+          echo "CGO_LDFLAGS=-O2 -g" >> $GITHUB_ENV
 
       - name: Build
         run: |
