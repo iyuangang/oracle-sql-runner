@@ -187,13 +187,19 @@ jobs:
         if: matrix.arch == 'arm64'
         run: |
           dnf install -y epel-release
-          dnf install -y gcc-aarch64-linux-gnu
+          dnf install -y gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            libc6-dev-arm64-cross \
+            linux-libc-dev-arm64-cross
           echo "GOARCH=arm64" >> $GITHUB_ENV
           echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
           echo "GOFLAGS=-buildmode=pie" >> $GITHUB_ENV
           echo "CGO_CFLAGS=-O2 -g" >> $GITHUB_ENV
           echo "CGO_CPPFLAGS=-O2 -g" >> $GITHUB_ENV
           echo "CGO_LDFLAGS=-O2 -g" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig" >> $GITHUB_ENV
+          echo "CGO_CFLAGS=-I/usr/aarch64-linux-gnu/include" >> $GITHUB_ENV
+          echo "CGO_LDFLAGS=-L/usr/aarch64-linux-gnu/lib" >> $GITHUB_ENV
 
       - name: Build
         run: |
