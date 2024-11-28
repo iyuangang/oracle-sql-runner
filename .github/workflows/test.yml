@@ -76,7 +76,7 @@ jobs:
           source $GITHUB_ENV
           for i in {1..60}; do
             echo "Attempt $i: Waiting for Oracle..."
-            if echo "SELECT 1 FROM DUAL;" | sqlplus -s "test/test123@//localhost:1521/XE" > /dev/null 2>&1; then
+            if echo "SELECT 1 FROM DUAL;" | sqlplus -s "test/test123@//localhost:1521/XE"; then
               echo "Oracle is ready!"
               break
             fi
