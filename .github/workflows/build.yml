@@ -75,38 +75,21 @@ jobs:
           echo "Build Time: ${BUILD_TIME}"
           echo "Version Suffix: ${VERSION_SUFFIX}"
 
-  test:
+  # 删除原有的 test job，替换为等待 test workflow 完成
+  wait-tests:
     needs: check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up Go
-        uses: actions/setup-go@v4
+      - name: Wait for tests
+        uses: lewagon/wait-on-check-action@v1.3.4
         with:
-          go-version: ${{ env.GO_VERSION }}
-      
-      - name: Cache Go modules
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-test-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-test-
-      
-      - name: Run Tests
-        run: |
-          go test -v -race -coverprofile=coverage.txt ./...
-      
-      - name: Upload coverage
-        uses: codecov/codecov-action@v3
-        with:
-          file: ./coverage.txt
+          ref: ${{ github.ref }}
+          check-name: 'test'
+          repo-token: ${{ secrets.ACTION_GITHUB_TOKEN }}
+          wait-interval: 10
 
   build:
-    needs: [check, test]
+    needs: [check, wait-tests]  # 修改依赖
     strategy:
       fail-fast: false
       matrix:
@@ -191,7 +174,7 @@ jobs:
           path: sql-runner-*.sha256
 
   build-rocky8:
-    needs: [check, test]
+    needs: [check, wait-tests]  # 修改依赖
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
