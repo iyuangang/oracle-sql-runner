@@ -290,7 +290,9 @@ jobs:
         run: |
           mkdir -p release
           cp -r sql-runner-*/* release/
-          sha256sum sql-runner-*/* > release/checksums.txt
+          for file in release/*; do
+            sha256sum "$file" > "$file.sha256"
+          done
       
       - name: Generate provenance
         uses: actions/attest-build-provenance@v1

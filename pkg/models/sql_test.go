@@ -134,7 +134,6 @@ func TestResult_Print(t *testing.T) {
 				for _, part := range expectedParts {
 					if !strings.Contains(output, part) {
 						return errors.New("missing expected output: " + part)
-
 					}
 				}
 				return nil
@@ -159,7 +158,6 @@ func TestResult_Print(t *testing.T) {
 				_, err := io.Copy(&buf, r)
 				if err != nil {
 					t.Errorf("io.Copy error: %v", err)
-
 				}
 				outputChan <- buf.String()
 			}()
