@@ -38,26 +38,30 @@ jobs:
           go-version: '1.22'
           cache: true
       
-      - name: Install Oracle Instant Client and SQL*Plus
+      - name: Install Oracle Instant Client
         run: |
-          # 添加 Oracle 仓库
+          # 安装依赖
           sudo apt-get update
-          sudo apt-get install -y libaio1 alien
+          sudo apt-get install -y libaio1
           
-          # 下载 Oracle Instant Client 和 SQL*Plus RPM 包
-          wget https://download.oracle.com/otn_software/linux/instantclient/219000/oracle-instantclient-basic-21.9.0.0.0-1.el8.x86_64.rpm
-          wget https://download.oracle.com/otn_software/linux/instantclient/219000/oracle-instantclient-sqlplus-21.9.0.0.0-1.el8.x86_64.rpm
+          # 下载并解压 Basic 包
+          wget https://download.oracle.com/otn_software/linux/instantclient/219000/instantclient-basic-linux.x64-21.9.0.0.0dbru.zip
+          sudo mkdir -p /opt/oracle
+          sudo unzip instantclient-basic-linux.x64-21.9.0.0.0dbru.zip -d /opt/oracle
           
-          # 转换 RPM 包为 DEB 包并安装
-          sudo alien -i oracle-instantclient-basic-21.9.0.0.0-1.el8.x86_64.rpm
-          sudo alien -i oracle-instantclient-sqlplus-21.9.0.0.0-1.el8.x86_64.rpm
+          # 下载并解压 SQL*Plus 包
+          wget https://download.oracle.com/otn_software/linux/instantclient/219000/instantclient-sqlplus-linux.x64-21.9.0.0.0dbru.zip
+          sudo unzip instantclient-sqlplus-linux.x64-21.9.0.0.0dbru.zip -d /opt/oracle
           
           # 配置环境变量
-          echo "export LD_LIBRARY_PATH=/usr/lib/oracle/21/client64/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
-          echo "export PATH=/usr/lib/oracle/21/client64/bin:$PATH" >> $GITHUB_ENV
+          echo "/opt/oracle/instantclient_21_9" | sudo tee /etc/ld.so.conf.d/oracle-instantclient.conf
+          sudo ldconfig
+          
+          echo "export LD_LIBRARY_PATH=/opt/oracle/instantclient_21_9:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          echo "export PATH=/opt/oracle/instantclient_21_9:$PATH" >> $GITHUB_ENV
           
           # 创建 TNS 配置
-          sudo mkdir -p /usr/lib/oracle/21/client64/network/admin
+          sudo mkdir -p /opt/oracle/instantclient_21_9/network/admin
           echo "XE =
             (DESCRIPTION =
               (ADDRESS = (PROTOCOL = TCP)(HOST = localhost)(PORT = 1521))
@@ -65,12 +69,19 @@ jobs:
                 (SERVER = DEDICATED)
                 (SERVICE_NAME = XE)
               )
-            )" | sudo tee /usr/lib/oracle/21/client64/network/admin/tnsnames.ora
+            )" | sudo tee /opt/oracle/instantclient_21_9/network/admin/tnsnames.ora
 
       - name: Wait for Oracle
         run: |
           source $GITHUB_ENV
-          timeout 300 bash -c 'until echo "SELECT 1 FROM DUAL;" | sqlplus -s "test/test123@//localhost:1521/XE" > /dev/null 2>&1; do echo "Waiting for Oracle..."; sleep 5; done'
+          for i in {1..60}; do
+            echo "Attempt $i: Waiting for Oracle..."
+            if echo "SELECT 1 FROM DUAL;" | sqlplus -s "test/test123@//localhost:1521/XE" > /dev/null 2>&1; then
+              echo "Oracle is ready!"
+              break
+            fi
+            sleep 5
+          done
 
       - name: Create test config
         run: |
@@ -100,17 +111,31 @@ jobs:
       - name: Prepare test fixtures
         run: |
           source $GITHUB_ENV
-          # 创建测试表和数据
           sqlplus -s test/test123@//localhost:1521/XE << EOF
+          WHENEVER SQLERROR EXIT SQL.SQLCODE;
+          
+          -- 创建测试表
           CREATE TABLE test_table (
             id NUMBER PRIMARY KEY,
             name VARCHAR2(100)
           );
           
+          -- 插入测试数据
           INSERT INTO test_table VALUES (1, 'Test 1');
           INSERT INTO test_table VALUES (2, 'Test 2');
           
+          -- 创建测试存储过程
+          CREATE OR REPLACE PROCEDURE test_proc AS
+          BEGIN
+            NULL;
+          END;
+          /
+          
           COMMIT;
+          
+          -- 验证
+          SELECT COUNT(*) FROM test_table;
+          
           EXIT;
           EOF
 
