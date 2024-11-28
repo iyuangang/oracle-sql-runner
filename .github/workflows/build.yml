@@ -181,14 +181,12 @@ jobs:
         run: |
           dnf install -y gcc gcc-c++ git make curl
           curl -L https://go.dev/dl/go1.22.9.linux-amd64.tar.gz | tar -C /usr/local -xzf -
-          export PATH=$PATH:/usr/local/go/bin
 
       - uses: actions/checkout@v4
 
       - name: Build
-        shell: /bin/bash
         run: |
-          export PATH=$PATH:/usr/local/go/bin
+          export PATH=/usr/local/go/bin:$PATH
           export CGO_ENABLED=1
           BINARY_NAME="sql-runner-${{ needs.check.outputs.version_suffix }}-rocky8-${{ matrix.arch }}"
           
