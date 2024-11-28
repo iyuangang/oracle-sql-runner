@@ -134,6 +134,7 @@ func TestResult_Print(t *testing.T) {
 				for _, part := range expectedParts {
 					if !strings.Contains(output, part) {
 						return errors.New("missing expected output: " + part)
+
 					}
 				}
 				return nil
