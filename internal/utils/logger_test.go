@@ -100,14 +100,14 @@ func TestNewLogger(t *testing.T) {
 			logFile: filepath.Join("/invalid", "path", "test.log"),
 			level:   "info",
 			verbose: true,
-			wantErr: false,
+			wantErr: true,
 		},
 		{
 			name:    "创建失败-无权限目录",
 			logFile: filepath.Join("/root", "test.log"),
 			level:   "info",
 			verbose: true,
-			wantErr: false,
+			wantErr: true,
 		},
 	}
 
