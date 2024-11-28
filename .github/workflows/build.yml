@@ -186,6 +186,7 @@ jobs:
       - name: Set up cross-compilation
         if: matrix.arch == 'arm64'
         run: |
+          dnf install -y epel-release
           dnf install -y gcc-aarch64-linux-gnu
           echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
 
