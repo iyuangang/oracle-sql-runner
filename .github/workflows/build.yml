@@ -188,6 +188,8 @@ jobs:
         run: |
           export PATH=/usr/local/go/bin:$PATH
           export CGO_ENABLED=1
+          rm -rf .git
+
           BINARY_NAME="sql-runner-${{ needs.check.outputs.version_suffix }}-rocky8-${{ matrix.arch }}"
           
           LDFLAGS="-X main.Version=${{ needs.check.outputs.version }} \
