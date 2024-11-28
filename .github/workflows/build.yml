@@ -43,7 +43,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: ${{ github.event.inputs.tag_version != '' || github.ref_type == 'tag' && 0 || 1 }}
+          fetch-depth: 0
 
       - name: Get version info
         id: version
@@ -51,13 +51,7 @@ jobs:
           VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
           COMMIT=$(git rev-parse --short HEAD)
           BUILD_TIME=$(date -u --iso-8601=ns)
-          
-          # 构建版本后缀
-          if [[ "${VERSION}" == "dev" ]]; then
-            VERSION_SUFFIX="dev-${COMMIT}"
-          else
-            VERSION_SUFFIX="${VERSION}"
-          fi
+          VERSION_SUFFIX="${VERSION}"
           
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "commit=${COMMIT}" >> $GITHUB_OUTPUT
@@ -171,7 +165,7 @@ jobs:
 
 
   build-rocky8:
-    needs: [check, wait-tests]  # 修改依赖
+    needs: [check, wait-tests]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -192,10 +186,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build
-        env:
-          CGO_ENABLED: 1
-          PATH: /usr/local/go/bin:$PATH
+        shell: /bin/bash
         run: |
+          export PATH=$PATH:/usr/local/go/bin
+          export CGO_ENABLED=1
           BINARY_NAME="sql-runner-${{ needs.check.outputs.version_suffix }}-rocky8-${{ matrix.arch }}"
           
           LDFLAGS="-X main.Version=${{ needs.check.outputs.version }} \
