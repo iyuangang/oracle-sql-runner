@@ -1,0 +1,95 @@
+name: Test
+
+on:
+  push:
+    branches: ["**"]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+  pull_request:
+    branches: ["**"]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      oracle:
+        image: gvenzl/oracle-xe:21-slim
+        env:
+          ORACLE_PASSWORD: oracle
+          APP_USER: test
+          APP_USER_PASSWORD: test123
+        ports:
+          - 1521:1521
+        options: >-
+          --health-cmd healthcheck.sh
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.22'
+          cache: true
+      
+      - name: Install Oracle Instant Client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libaio1
+          wget https://download.oracle.com/otn_software/linux/instantclient/219000/instantclient-basic-linux.x64-21.9.0.0.0dbru.zip
+          sudo unzip instantclient-basic-linux.x64-21.9.0.0.0dbru.zip -d /opt/oracle
+          sudo sh -c "echo /opt/oracle/instantclient_21_9 > /etc/ld.so.conf.d/oracle-instantclient.conf"
+          sudo ldconfig
+
+      - name: Wait for Oracle
+        run: |
+          timeout 300 bash -c 'until echo "SELECT 1 FROM DUAL;" | sqlplus -s test/test123@//localhost:1521/XE; do sleep 5; done'
+
+      - name: Create test config
+        run: |
+          cat > config.json << EOF
+          {
+            "databases": {
+              "test": {
+                "name": "测试库",
+                "user": "test",
+                "password": "test123",
+                "host": "localhost",
+                "port": 1521,
+                "service": "XE"
+              }
+            },
+            "max_retries": 3,
+            "max_concurrent": 5,
+            "batch_size": 1000,
+            "timeout": 30,
+            "log_level": "debug"
+          }
+          EOF
+
+      - name: Run unit tests
+        run: go test -v ./pkg/... ./internal/...
+
+      - name: Run integration tests
+        run: |
+          # 准备测试数据
+          echo "CREATE TABLE test_table (id NUMBER, name VARCHAR2(100));" | \
+          sqlplus -s test/test123@//localhost:1521/XE
+          
+          # 运行集成测试
+          go test -v ./test/integration/...
+
+      - name: Upload test coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage.txt 

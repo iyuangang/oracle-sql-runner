@@ -2,20 +2,28 @@ name: Build
 
 on:
   push:
-    branches: [ main, dev ]
-    tags: [ 'v*' ]
+    branches: ["**"]
+    tags: ["v*"]
     paths-ignore:
       - '**.md'
       - 'docs/**'
       - '.github/**'
       - 'LICENSE'
-  pull_request:
-    branches: [ main, dev ]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '.github/**'
-      - 'LICENSE'
+  workflow_dispatch:
+    inputs:
+      tag_version:
+        description: "Tag Version (e.g., v1.2.3)"
+        required: true
+        type: string
+
+# 并发控制
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-build
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  GO_VERSION: '1.22'
+  CGO_ENABLED: 1
 
 jobs:
   check:
@@ -30,17 +38,23 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       commit: ${{ steps.version.outputs.commit }}
       build_time: ${{ steps.version.outputs.build_time }}
+      version_suffix: ${{ steps.version.outputs.version_suffix }}
     
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 获取完整的 git 历史用于版本标签
+          fetch-depth: ${{ github.event.inputs.tag_version != '' || github.ref_type == 'tag' && 0 || 1 }}
 
       - name: Get version info
         id: version
         run: |
-          # 获取版本号（如果有标签就用标签，否则用 commit id）
-          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+          # 获取版本信息
+          if [[ "${{ github.event.inputs.tag_version }}" != "" ]]; then
+            VERSION="${{ github.event.inputs.tag_version }}"
+          else
+            VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+          fi
+          
           COMMIT=$(git rev-parse --short HEAD)
           BUILD_TIME=$(date -u --iso-8601=ns)
           
@@ -54,209 +68,229 @@ jobs:
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "commit=${COMMIT}" >> $GITHUB_OUTPUT
           echo "build_time=${BUILD_TIME}" >> $GITHUB_OUTPUT
+          echo "version_suffix=${VERSION_SUFFIX}" >> $GITHUB_OUTPUT
           
           echo "Version: ${VERSION}"
           echo "Commit: ${COMMIT}"
           echo "Build Time: ${BUILD_TIME}"
+          echo "Version Suffix: ${VERSION_SUFFIX}"
+
+  test:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-test-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-test-
+      
+      - name: Run Tests
+        run: |
+          go test -v -race -coverprofile=coverage.txt ./...
+      
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.txt
 
   build:
-    needs: check
-    name: Build
-    runs-on: ${{ matrix.os }}
+    needs: [check, test]
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        arch: [amd64, arm64]
         include:
-          - os: ubuntu-latest
-            platform: linux
-          - os: windows-latest
-            platform: windows
-          - os: macos-latest
-            platform: darwin
-        exclude:
-          - os: windows-latest
-            arch: arm64  # Windows 暂不构建 arm64 版本
-
+          - {os: ubuntu-latest, platform: linux, arch: amd64}
+          - {os: ubuntu-latest, platform: linux, arch: arm64}
+          - {os: windows-latest, platform: windows, arch: amd64}
+          - {os: macos-latest, platform: darwin, arch: amd64}
+          - {os: macos-latest, platform: darwin, arch: arm64}
+    
+    runs-on: ${{ matrix.os }}
+    
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-${{ matrix.arch }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.arch }}-go-
 
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.22'
+      - name: Install dependencies
+        run: |
+          go mod download
+          go mod verify
 
-    - name: Install dependencies
-      run: go mod download
+      - name: Set up cross-compilation
+        if: matrix.arch == 'arm64' && matrix.platform != 'darwin'
+        run: |
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            sudo apt-get update
+            sudo apt-get install -y gcc-aarch64-linux-gnu
+            echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          fi
 
-    - name: Set binary name
-      shell: bash
-      run: |
-        BASE_NAME="sql-runner-${{ needs.check.outputs.version}}-${{ matrix.platform }}-${{ matrix.arch }}"
-        if [[ "${{ matrix.platform }}" == "windows" ]]; then
-          echo "BINARY_NAME=${BASE_NAME}.exe" >> $GITHUB_ENV
-        else
-          echo "BINARY_NAME=${BASE_NAME}" >> $GITHUB_ENV
-        fi
+      - name: Build
+        env:
+          GOOS: ${{ matrix.platform }}
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          BINARY_NAME="sql-runner-${{ needs.check.outputs.version_suffix }}-${{ matrix.platform }}-${{ matrix.arch }}"
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            BINARY_NAME="${BINARY_NAME}.exe"
+          fi
+          
+          LDFLAGS="-X main.Version=${{ needs.check.outputs.version }} \
+                   -X main.Commit=${{ needs.check.outputs.commit }} \
+                   -X main.BuildTime=${{ needs.check.outputs.build_time }} \
+                   -s -w"
+          
+          go build -v -o "${BINARY_NAME}" -ldflags="${LDFLAGS}" ./cmd/sql-runner/
+          
+          # 生成校验和
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            certutil -hashfile "${BINARY_NAME}" SHA256 > "${BINARY_NAME}.sha256"
+          else
+            sha256sum "${BINARY_NAME}" > "${BINARY_NAME}.sha256"
+          fi
 
-    - name: Set CGO environment (Linux)
-      if: matrix.os == 'ubuntu-latest'
-      run: |
-        if [ "${{ matrix.arch }}" = "arm64" ]; then
-          echo "CGO_ENABLED=1" >> $GITHUB_ENV
-        else
-          echo "CGO_ENABLED=1" >> $GITHUB_ENV
-        fi
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sql-runner-${{ needs.check.outputs.version_suffix }}-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            sql-runner-*
+            !sql-runner-*.sha256
+          compression-level: 9
 
-    - name: Set CGO environment (macOS)
-      if: matrix.os == 'macos-latest'
-      run: |
-        echo "CGO_ENABLED=1" >> $GITHUB_ENV
-
-    - name: Set CGO environment (Windows)
-      if: matrix.os == 'windows-latest'
-      shell: bash
-      run: |
-        echo "CGO_ENABLED=1" >> $GITHUB_ENV
-
-    - name: Build
-      shell: bash
-      run: |
-        LDFLAGS="-X main.Version=${{ needs.check.outputs.version }} \
-                 -X main.Commit=${{ needs.check.outputs.commit }} \
-                 -X main.BuildTime=${{ needs.check.outputs.build_time }} \
-                 -s -w"
-        go build -v -o "${BINARY_NAME}" -ldflags="${LDFLAGS}" ./cmd/sql-runner/
-
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ env.BINARY_NAME }}
-        path: ${{ env.BINARY_NAME }}
-        compression-level: 9
+      - name: Upload checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksums
+          path: sql-runner-*.sha256
 
   build-rocky8:
-    needs: check
-    name: Build Rocky 8
+    needs: [check, test]
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        arch: [ amd64, arm64 ]
-        include:
-          - arch: amd64
-            container: rockylinux:8
-            go_arch: amd64
-          - arch: arm64
-            container: rockylinux:8
-            go_arch: arm64
-    container: ${{ matrix.container }}
+        arch: [amd64, arm64]
+    
+    container: 
+      image: rockylinux:8
+      options: --platform linux/${{ matrix.arch }}
 
     steps:
-    - name: Install dependencies
-      run: |
-        yum install -y gcc gcc-c++ git make curl
-        curl -L https://go.dev/dl/go1.22.9.linux-amd64.tar.gz | tar -C /usr/local -xzf -
-        export PATH=$PATH:/usr/local/go/bin
+      - name: Install dependencies
+        run: |
+          dnf install -y gcc gcc-c++ git make curl
+          curl -L "https://go.dev/dl/go${{ env.GO_VERSION }}.linux-${{ matrix.arch }}.tar.gz" | tar -C /usr/local -xzf -
+          export PATH=$PATH:/usr/local/go/bin
 
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-    - name: Build
-      shell: bash
-      run: |
-        rm -rf .git
-        export PATH=$PATH:/usr/local/go/bin
-        export CGO_ENABLED=1
-        export CC=gcc
-        go mod download
-        
-        BINARY_NAME="sql-runner-${{ needs.check.outputs.version}}-rocky8-${{ matrix.arch }}"
-        
-        LDFLAGS="-X main.Version=${{ needs.check.outputs.version }} \
-                 -X main.Commit=${{ needs.check.outputs.commit }} \
-                 -X main.BuildTime=${{ needs.check.outputs.build_time }} \
-                 -s -w"
-        go build -v -o "${BINARY_NAME}" -ldflags="${LDFLAGS}" ./cmd/sql-runner/
+      - name: Build
+        env:
+          CGO_ENABLED: 1
+          PATH: /usr/local/go/bin:$PATH
+        run: |
+          BINARY_NAME="sql-runner-${{ needs.check.outputs.version_suffix }}-rocky8-${{ matrix.arch }}"
+          
+          LDFLAGS="-X main.Version=${{ needs.check.outputs.version }} \
+                   -X main.Commit=${{ needs.check.outputs.commit }} \
+                   -X main.BuildTime=${{ needs.check.outputs.build_time }} \
+                   -s -w"
+          
+          go build -v -o "${BINARY_NAME}" -ldflags="${LDFLAGS}" ./cmd/sql-runner/
+          sha256sum "${BINARY_NAME}" > "${BINARY_NAME}.sha256"
 
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: sql-runner-${{ needs.check.outputs.version}}-rocky8-${{ matrix.arch }}
-        path: sql-runner-${{ needs.check.outputs.version}}-rocky8-${{ matrix.arch }}
-        compression-level: 9
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sql-runner-${{ needs.check.outputs.version_suffix }}-rocky8-${{ matrix.arch }}
+          path: |
+            sql-runner-*
+            !sql-runner-*.sha256
+          compression-level: 9
+
+      - name: Upload checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksums-rocky8
+          path: sql-runner-*.sha256
 
   changelog:
     needs: check
+    if: github.ref_type == 'tag' || github.event.inputs.tag_version != ''
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
     outputs:
       release_notes: ${{ steps.changelog.outputs.changelog }}
     
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 获取完整历史用于生成变更日志
-
-      - name: Get previous tag
-        id: previoustag
-        run: |
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          echo "previous_tag=${PREVIOUS_TAG}" >> $GITHUB_OUTPUT
-          echo "Previous tag: ${PREVIOUS_TAG}"
+          fetch-depth: 0
 
       - name: Generate changelog
         id: changelog
         run: |
-          # 如果有上一个标签，则获取从上一个标签到现在的提交
-          if [ -n "${{ steps.previoustag.outputs.previous_tag }}" ]; then
-            RANGE="${{ steps.previoustag.outputs.previous_tag }}..HEAD"
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "${PREVIOUS_TAG}" ]; then
+            RANGE="${PREVIOUS_TAG}..HEAD"
           else
-            # 如果没有上一个标签，获取所有提交
             RANGE="HEAD"
           fi
           
-          # 生成变更日志
-          echo "## What's Changed" > CHANGELOG.md
-          echo "" >> CHANGELOG.md
+          {
+            echo "## What's Changed"
+            echo
+            echo "### 🚀 Features"
+            git log ${RANGE} --pretty=format:"* %s" --grep="^feat:"
+            echo
+            echo "### 🐛 Bug Fixes"
+            git log ${RANGE} --pretty=format:"* %s" --grep="^fix:"
+            echo
+            echo "### 📝 Documentation"
+            git log ${RANGE} --pretty=format:"* %s" --grep="^docs:"
+            echo
+            echo "### ⚡ Performance"
+            git log ${RANGE} --pretty=format:"* %s" --grep="^perf:"
+            echo
+            echo "### 🔨 Other Changes"
+            git log ${RANGE} --pretty=format:"* %s" \
+              --grep="^refactor:" \
+              --grep="^style:" \
+              --grep="^test:" \
+              --grep="^chore:"
+            echo
+            echo "### 👥 Contributors"
+            git log ${RANGE} --pretty=format:"* %an" | sort -u
+          } > CHANGELOG.md
           
-          # 按类型分类提交
-          echo "### 🚀 Features" >> CHANGELOG.md
-          git log ${RANGE} --pretty=format:"* %s" --grep="^feat:" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          
-          echo "### 🐛 Bug Fixes" >> CHANGELOG.md
-          git log ${RANGE} --pretty=format:"* %s" --grep="^fix:" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          
-          echo "### 📝 Documentation" >> CHANGELOG.md
-          git log ${RANGE} --pretty=format:"* %s" --grep="^docs:" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          
-          echo "### ⚡ Performance" >> CHANGELOG.md
-          git log ${RANGE} --pretty=format:"* %s" --grep="^perf:" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          
-          echo "### 🔨 Other Changes" >> CHANGELOG.md
-          git log ${RANGE} --pretty=format:"* %s" \
-            --grep="^refactor:" \
-            --grep="^style:" \
-            --grep="^test:" \
-            --grep="^chore:" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          
-          # 添加贡献者列表
-          echo "### 👥 Contributors" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          git log ${RANGE} --pretty=format:"* %an" | sort -u >> CHANGELOG.md
-          
-          # 将变更日志内容存储为输出
-          CHANGELOG=$(cat CHANGELOG.md)
           echo "changelog<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          cat CHANGELOG.md >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Upload changelog
@@ -268,31 +302,34 @@ jobs:
 
   release:
     needs: [build, build-rocky8, changelog]
+    if: github.ref_type == 'tag' || github.event.inputs.tag_version != ''
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
     
     permissions:
       contents: write
-      packages: write
       id-token: write
-
+    
     steps:
-    - name: Download all artifacts
-      uses: actions/download-artifact@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
       
-    - name: Generate checksums
-      run: |
-        for file in sql-runner*/*; do
-          sha256sum "$file" >> checksums.txt
-        done
-
-    - name: Create Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
-          sql-runner*/*
-          checksums.txt
-        body: ${{ needs.changelog.outputs.release_notes }}
-        draft: true
-        prerelease: false
-        generate_release_notes: false  # 使用我们自己生成的变更日志
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          cp -r sql-runner-*/* release/
+          cp -r checksums*/*.sha256 release/
+          cat release/*.sha256 > release/checksums.txt
+      
+      - name: Generate provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: release/*
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: v${{ needs.check.outputs.version }}
+          body_path: changelog/CHANGELOG.md
+          files: release/*
+          draft: true
+          prerelease: ${{ contains(needs.check.outputs.version, 'beta') || contains(needs.check.outputs.version, 'alpha') }}

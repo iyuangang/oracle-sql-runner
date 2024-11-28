@@ -7,7 +7,7 @@ ifeq ($(OS),Windows_NT)
     SEP = \\
     EXE = .exe
     # Windows 下获取时间
-    BUILD_TIME = $(Get-Date -Format "yyyy-MM-dd_HH:mm:ss")
+    BUILD_TIME = $(Get-Date -Format "yyyy-MM-ddTHH:mm:ss")
 else
     # Unix-like 命令
     RM = rm -rf $(BUILD_DIR)
@@ -16,7 +16,7 @@ else
     SEP = /
     EXE =
     # Unix 下获取时间
-    BUILD_TIME = $(date -u '+%Y-%m-%d_%H:%M:%S')
+    BUILD_TIME = $(date -u '+%Y-%m-%dT%H:%M:%S')
 endif
 
 # 基本变量
