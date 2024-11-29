@@ -238,52 +238,35 @@ jobs:
             --project $(basename ${{ github.repository }}) \
             --token $CHANGELOG_GITHUB_TOKEN \
             --since-tag $(git describe --abbrev=0 --tags `git rev-list --tags --skip=1 --max-count=1` 2>/dev/null || echo "") \
-            --future-release "${VERSION}" \
+            --future-release "v${VERSION}" \
             --output changelog/CHANGELOG.md \
-            --base HISTORY.md \
-            --header-label "# Changelog" \
+            --header-label "# 更新日志" \
+            --commit-limit false \
+            --unreleased-only false \
+            --author false \
+            --usernames-as-github-logins true \
+            --no-issues \
+            --no-pull-requests \
+            --no-compare-link \
+            --simple-list \
             --breaking-label "### ⚠ BREAKING CHANGES" \
-            --enhancement-label "### ✨ New Features" \
-            --bugs-label "### 🐛 Bug Fixes" \
-            --issues-label "### 📝 Other" \
-            --pr-label "### 📦 Updates" \
-            --exclude-labels duplicate,question,invalid,wontfix,discussion \
-            --configure-sections \
-            '{
-              "breaking": {
-                "prefix": "⚠",
-                "labels": ["breaking"]
-              },
-              "feature": {
-                "prefix": "✨",
-                "labels": ["feature", "enhancement"]
-              },
-              "bug": {
-                "prefix": "🐛",
-                "labels": ["bug", "bugfix", "fix"]
-              },
-              "security": {
-                "prefix": "🔒",
-                "labels": ["security"]
-              },
-              "performance": {
-                "prefix": "⚡",
-                "labels": ["performance"]
-              },
-              "documentation": {
-                "prefix": "📚",
-                "labels": ["documentation"]
-              },
-              "dependencies": {
-                "prefix": "⬆️",
-                "labels": ["dependencies"]
-              },
-              "chore": {
-                "prefix": "🔧",
-                "labels": ["chore"]
-              }
-            }'
-      
+            --enhancement-label "### ✨ 新特性" \
+            --bugs-label "### 🐛 Bug 修复" \
+            --deprecated-label "### ⚠️ 废弃" \
+            --removed-label "### 🗑️ 移除" \
+            --security-label "### 🔒 安全更新" \
+            --enhancement-prefix "feat" \
+            --bugs-prefix "fix" \
+            --deprecated-prefix "deprecate" \
+            --removed-prefix "remove" \
+            --security-prefix "security" \
+            --add-sections '{"docs":{"prefix":"docs:","label":"### 📚 文档更新"},"style":{"prefix":"style:","label":"### 💄 样式"},"perf":{"prefix":"perf:","label":"### ⚡ 性能优化"},"refactor":{"prefix":"refactor:","label":"### ♻️ 重构"},"chore":{"prefix":"chore:","label":"### 🔧 其他"}}'
+
+      - name: Process changelog
+        run: |
+          # 移除不需要的部分
+          sed -i '/^\* \*This Changelog/d' changelog/CHANGELOG.md
+       
       - name: Upload changelog
         uses: actions/upload-artifact@v4
         with:
