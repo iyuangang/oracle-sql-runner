@@ -221,14 +221,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.ACTION_GITHUB_TOKEN }}
         run: |
-          # 获取版本信息
           VERSION="${{ needs.check.outputs.version }}"
           CURRENT_TAG="${VERSION}"
           PREVIOUS_TAG=$(git describe --abbrev=0 --tags `git rev-list --tags --skip=1 --max-count=1` 2>/dev/null || echo "")
           CURRENT_DATE=$(date +'%Y-%m-%d')
           REPO="${{ github.repository }}"
           
-          # 获取提交者的 GitHub 用户名映射
           declare -A AUTHOR_MAP
           while IFS= read -r line; do
             FULL_HASH=$(echo "$line" | cut -d' ' -f1)
@@ -243,91 +241,80 @@ jobs:
             fi
           done < <(git log ${PREVIOUS_TAG}..HEAD --format="%H %h")
           
-          # 开始生成 changelog
           {
-            echo "# 更新日志"
+            echo "# Changelog"
             echo
             echo "## ${CURRENT_TAG} (${CURRENT_DATE})"
             echo
-            echo "### 主要更新"
+            echo "### Major Updates"
             echo
             
-            # 新特性
-            echo "#### ⭐ 新特性"
+            echo "#### ⭐ New Features"
             git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --reverse | grep -E "^- feat" | \
-              sed -E 's/^- feat(\([^)]+\))?:/- /' | while read -r line; do
+              sed -E 's/^- feat(\([^)]+\))?:/-/' | while read -r line; do
                 HASH=$(echo "$line" | grep -o '([a-f0-9]\{7\})' | tr -d '()')
                 AUTHOR="${AUTHOR_MAP[$HASH]}"
                 echo "$line ${AUTHOR}"
-              done || echo "- 无"
+              done || echo "- None"
             echo
             
-            # 优化
-            echo "#### ⚡️ 优化"
+            echo "#### ⚡️ Optimizations"
             git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --reverse | grep -E "^- (perf|refactor)" | \
-              sed -E 's/^- (perf|refactor)(\([^)]+\))?:/- /' | while read -r line; do
+              sed -E 's/^- (perf|refactor)(\([^)]+\))?:/-/' | while read -r line; do
                 HASH=$(echo "$line" | grep -o '([a-f0-9]\{7\})' | tr -d '()')
                 AUTHOR="${AUTHOR_MAP[$HASH]}"
                 echo "$line ${AUTHOR}"
-              done || echo "- 无"
+              done || echo "- None"
             echo
             
-            # Bug 修复
-            echo "#### 🐞 Bug 修复"
+            echo "#### 🐞 Bug Fixes"
             git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --reverse | grep -E "^- fix" | \
-              sed -E 's/^- fix(\([^)]+\))?:/- /' | while read -r line; do
+              sed -E 's/^- fix(\([^)]+\))?:/-/' | while read -r line; do
                 HASH=$(echo "$line" | grep -o '([a-f0-9]\{7\})' | tr -d '()')
                 AUTHOR="${AUTHOR_MAP[$HASH]}"
                 echo "$line ${AUTHOR}"
-              done || echo "- 无"
+              done || echo "- None"
             echo
             
-            # 文档更新
-            echo "#### 📚 文档更新"
+            echo "#### 📚 Documentation Updates"
             git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --reverse | grep -E "^- docs" | \
-              sed -E 's/^- docs(\([^)]+\))?:/- /' | while read -r line; do
+              sed -E 's/^- docs(\([^)]+\))?:/-/' | while read -r line; do
                 HASH=$(echo "$line" | grep -o '([a-f0-9]\{7\})' | tr -d '()')
                 AUTHOR="${AUTHOR_MAP[$HASH]}"
                 echo "$line ${AUTHOR}"
-              done || echo "- 无"
+              done || echo "- None"
             echo
             
-            # 依赖更新
-            echo "#### ⬆️ 依赖更新"
+            echo "#### ⬆️ Dependency Updates"
             git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --reverse | grep -E "^- (build|deps)" | \
-              sed -E 's/^- (build|deps)(\([^)]+\))?:/- /' | while read -r line; do
+              sed -E 's/^- (build|deps)(\([^)]+\))?:/-/' | while read -r line; do
                 HASH=$(echo "$line" | grep -o '([a-f0-9]\{7\})' | tr -d '()')
                 AUTHOR="${AUTHOR_MAP[$HASH]}"
                 echo "$line ${AUTHOR}"
-              done || echo "- 无"
+              done || echo "- None"
             echo
             
-            # 其他更改
-            echo "#### 🔨 其他更改"
+            echo "#### 🔨 Other Changes"
             git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --reverse | \
               grep -vE "^- (feat|fix|docs|refactor|perf|build|deps):" | while read -r line; do
                 HASH=$(echo "$line" | grep -o '([a-f0-9]\{7\})' | tr -d '()')
                 AUTHOR="${AUTHOR_MAP[$HASH]}"
                 echo "$line ${AUTHOR}"
-              done || echo "- 无"
+              done || echo "- None"
             echo
             
-            # 贡献者
-            echo "### 👥 贡献者"
+            echo "### 👥 Contributors"
             printf '%s\n' "${AUTHOR_MAP[@]}" | sort -u | tr '\n' ' '
             echo
             echo
             
-            # 完整变更记录链接
             echo "[Full Changelog](https://github.com/${REPO}/compare/${PREVIOUS_TAG}...${CURRENT_TAG})"
             
           } > changelog/CHANGELOG.md
           
-          # 移除空分类
-          sed -i '/    - 无/d' changelog/CHANGELOG.md
+          sed -i '/- None/d' changelog/CHANGELOG.md
           sed -i '/#### .*/{ N; /####.*\n$/d }' changelog/CHANGELOG.md
           
-          # 显示生成的内容
           cat changelog/CHANGELOG.md
       
       - name: Upload changelog

@@ -16,6 +16,7 @@ func TestNewMetrics(t *testing.T) {
 	}
 	if m.QueryCount != 0 {
 		t.Errorf("QueryCount = %d, want 0", m.QueryCount)
+
 	}
 }
 
