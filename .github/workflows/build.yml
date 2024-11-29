@@ -205,65 +205,93 @@ jobs:
 
   changelog:
     needs: check
-    if: github.ref_type == 'tag' || github.event.inputs.tag_version != ''
     runs-on: ubuntu-latest
-    outputs:
-      release_notes: ${{ steps.changelog.outputs.changelog }}
+    if: github.ref_type == 'tag' || github.event.inputs.tag_version != ''
     
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+      
+      - name: Install github-changelog-generator
+        run: gem install github_changelog_generator
 
+      - name: Create changelog directory
+        run: mkdir -p changelog
+      
       - name: Generate changelog
-        id: changelog
+        env:
+          CHANGELOG_GITHUB_TOKEN: ${{ secrets.ACTION_GITHUB_TOKEN }}
         run: |
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          if [ -n "${PREVIOUS_TAG}" ]; then
-            RANGE="${PREVIOUS_TAG}..HEAD"
-          else
-            RANGE="HEAD"
-          fi
+          # 获取版本号
+          VERSION="${{ needs.check.outputs.version }}"
           
-          {
-            echo "## What's Changed"
-            echo
-            echo "### 🚀 Features"
-            git log ${RANGE} --pretty=format:"* %s" --grep="^feat:"
-            echo
-            echo "### 🐛 Bug Fixes"
-            git log ${RANGE} --pretty=format:"* %s" --grep="^fix:"
-            echo
-            echo "### 📝 Documentation"
-            git log ${RANGE} --pretty=format:"* %s" --grep="^docs:"
-            echo
-            echo "### ⚡ Performance"
-            git log ${RANGE} --pretty=format:"* %s" --grep="^perf:"
-            echo
-            echo "### 🔨 Other Changes"
-            git log ${RANGE} --pretty=format:"* %s" \
-              --grep="^refactor:" \
-              --grep="^style:" \
-              --grep="^test:" \
-              --grep="^chore:"
-            echo
-            echo "### 👥 Contributors"
-            git log ${RANGE} --pretty=format:"* %an" | sort -u
-          } > CHANGELOG.md
-          
-          echo "changelog<<EOF" >> $GITHUB_OUTPUT
-          cat CHANGELOG.md >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
+          # 配置生成器
+          github_changelog_generator \
+            --user ${{ github.repository_owner }} \
+            --project $(basename ${{ github.repository }}) \
+            --token $CHANGELOG_GITHUB_TOKEN \
+            --since-tag $(git describe --abbrev=0 --tags `git rev-list --tags --skip=1 --max-count=1` 2>/dev/null || echo "") \
+            --future-release "${VERSION}" \
+            --output changelog/CHANGELOG.md \
+            --base HISTORY.md \
+            --header-label "# Changelog" \
+            --breaking-label "### ⚠ BREAKING CHANGES" \
+            --enhancement-label "### ✨ New Features" \
+            --bugs-label "### 🐛 Bug Fixes" \
+            --issues-label "### 📝 Other" \
+            --pr-label "### 📦 Updates" \
+            --exclude-labels duplicate,question,invalid,wontfix,discussion \
+            --configure-sections \
+            '{
+              "breaking": {
+                "prefix": "⚠",
+                "labels": ["breaking"]
+              },
+              "feature": {
+                "prefix": "✨",
+                "labels": ["feature", "enhancement"]
+              },
+              "bug": {
+                "prefix": "🐛",
+                "labels": ["bug", "bugfix", "fix"]
+              },
+              "security": {
+                "prefix": "🔒",
+                "labels": ["security"]
+              },
+              "performance": {
+                "prefix": "⚡",
+                "labels": ["performance"]
+              },
+              "documentation": {
+                "prefix": "📚",
+                "labels": ["documentation"]
+              },
+              "dependencies": {
+                "prefix": "⬆️",
+                "labels": ["dependencies"]
+              },
+              "chore": {
+                "prefix": "🔧",
+                "labels": ["chore"]
+              }
+            }'
+      
       - name: Upload changelog
         uses: actions/upload-artifact@v4
         with:
           name: changelog
-          path: CHANGELOG.md
-          retention-days: 1
+          path: changelog/CHANGELOG.md
 
   release:
-    needs: [build, build-rocky8, changelog]
+    needs: [check, build, build-rocky8, changelog]
     if: github.ref_type == 'tag' || github.event.inputs.tag_version != ''
     runs-on: ubuntu-latest
     
@@ -292,8 +320,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: v${{ needs.check.outputs.version }}
+          name: ${{ needs.check.outputs.version }}
           body_path: changelog/CHANGELOG.md
           files: release/*
-          draft: true
+          draft: false
           prerelease: ${{ contains(needs.check.outputs.version, 'beta') || contains(needs.check.outputs.version, 'alpha') }}
