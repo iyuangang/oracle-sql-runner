@@ -1,6 +1,7 @@
 # Oracle SQL Runner
 
 [![Build](https://github.com/iyuangang/oracle-sql-runner/actions/workflows/build.yml/badge.svg)](https://github.com/iyuangang/oracle-sql-runner/actions/workflows/build.yml)
+[![codecov](https://codecov.io/github/iyuangang/oracle-sql-runner/branch/dev/graph/badge.svg?token=XZOV0PQA4N)](https://codecov.io/github/iyuangang/oracle-sql-runner)
 [![Release](https://img.shields.io/github/v/release/iyuangang/oracle-sql-runner)](https://github.com/iyuangang/oracle-sql-runner/releases)
 [![Go Report Card](https://goreportcard.com/badge/github.com/iyuangang/oracle-sql-runner)](https://goreportcard.com/report/github.com/iyuangang/oracle-sql-runner)
 [![License](https://img.shields.io/github/license/iyuangang/oracle-sql-runner)](LICENSE)
