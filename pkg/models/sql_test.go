@@ -24,7 +24,6 @@ func TestNewResult(t *testing.T) {
 	}
 	if result.StartTime.IsZero() {
 		t.Error("Expected StartTime to be set")
-
 	}
 }
 

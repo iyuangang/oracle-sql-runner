@@ -235,49 +235,49 @@ jobs:
             
             # 新特性
             echo "#### ⭐ 新特性"
-            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h) @%an" --reverse | grep -E "^feat" | \
+            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"%s (%h) @%ae" --reverse | grep -E "^feat" | \
               sed -E 's/^feat(\([^)]+\))?://' || echo "- 无"
             echo
             
             # 优化
             echo
             echo "#### ⚡️ 优化"
-            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h) @%an" --reverse | grep -E "^(perf|refactor)" | \
+            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"%s (%h) @%ae" --reverse | grep -E "^(perf|refactor)" | \
               sed -E 's/^(perf|refactor)(\([^)]+\))?://' || echo "- 无"
             echo
             
             # Bug 修复
             echo
             echo "#### 🐞 Bug 修复"
-            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h) @%an" --reverse | grep -E "^fix" | \
+            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"%s (%h) @%ae" --reverse | grep -E "^fix" | \
               sed -E 's/^fix(\([^)]+\))?://' || echo "- 无"
             echo
             
             # 文档更新
             echo
             echo "#### 📚 文档更新"
-            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h) @%an" --reverse | grep -E "^docs" | \
+            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"%s (%h) @%ae" --reverse | grep -E "^docs" | \
               sed -E 's/^docs(\([^)]+\))?://' || echo "- 无"
             echo
             
             # 依赖更新
             echo
             echo "#### ⬆️ 依赖更新"
-            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h) @%an" --reverse | grep -E "^(build|deps)" | \
+            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"%s (%h) @%ae" --reverse | grep -E "^(build|deps)" | \
               sed -E 's/^(build|deps)(\([^)]+\))?://' || echo "- 无"
             echo
             
             # 其他更改
             echo
-            echo "#### 🔨 Other Changes"
-            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h) @%an" --reverse | \
+            echo "#### 🔨 其他更改"
+            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"%s (%h) @%ae" --reverse | \
               grep -vE "^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|deps):" || echo "- 无"
             echo
             
             # 贡献者
             echo
-            echo "### 👥 Contributors"
-            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"@%an" | sort -u | tr '\n' ' '
+            echo "### 👥 贡献者"
+            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"@%ae" | sort -u | tr '\n' ' '
             echo
             echo
             
