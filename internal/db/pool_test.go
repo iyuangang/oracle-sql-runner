@@ -318,7 +318,6 @@ func TestPoolStats(t *testing.T) {
 		rows, err := pool.QueryContext(ctx, "SELECT 1 FROM DUAL")
 		require.NoError(t, err)
 		rows.Close()
-
 	}
 
 	// 验证连接数增加
