@@ -213,6 +213,10 @@ jobs:
         with:
           fetch-depth: 0
       
+      - name: mkdir changelog
+        run: |
+          mkdir -p changelog
+
       - name: Generate changelog
         env:
           GITHUB_TOKEN: ${{ secrets.ACTION_GITHUB_TOKEN }}

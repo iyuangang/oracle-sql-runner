@@ -68,6 +68,7 @@ func TestMetrics_AddQuery(t *testing.T) {
 				SuccessCount:  0,
 				FailureCount:  1,
 				TotalDuration: int64(50 * time.Millisecond),
+
 			},
 		},
 	}
