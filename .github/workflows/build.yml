@@ -239,20 +239,7 @@ jobs:
             --token $CHANGELOG_GITHUB_TOKEN \
             --since-tag $(git describe --abbrev=0 --tags `git rev-list --tags --skip=1 --max-count=1` 2>/dev/null || echo "") \
             --future-release "${VERSION}" \
-            --output changelog/CHANGELOG.md \
-            --header-label "# Changelog" \
-            --breaking-label "### ⚠️ Breaking Changes" \
-            --enhancement-label "### ✨ Features" \
-            --bugs-label "### 🐛 Bug Fixes" \
-            --deprecated-label "### ⚠️ Deprecated" \
-            --removed-label "### 🗑️ Removed" \
-            --security-label "### 🔒 Security" \
-            --enhancement-prefix "feat" \
-            --bugs-prefix "fix" \
-            --deprecated-prefix "deprecate" \
-            --removed-prefix "remove" \
-            --security-prefix "security" \
-            --add-sections '{"docs":{"prefix":"docs:","label":"### 📚 Docs"},"style":{"prefix":"style:","label":"### 💄 Style"},"perf":{"prefix":"perf:","label":"### ⚡ Performance"},"refactor":{"prefix":"refactor:","label":"### ♻️ Refactor"},"chore":{"prefix":"chore:","label":"### 🔧 Chore"}}'
+            --output changelog/CHANGELOG.md
 
       - name: Process changelog
         run: |
