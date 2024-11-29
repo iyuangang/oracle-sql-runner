@@ -97,11 +97,17 @@ jobs:
           source $GITHUB_ENV
           go test -v -coverprofile=coverage.integration.txt ./test/integration/...
 
+      - name: Run full tests
+        run: |
+          source $GITHUB_ENV
+          go test -v -coverprofile=coverage.full.txt ./...
+
       - name: Combine coverage reports
         run: |
           echo "mode: atomic" > coverage.txt
           tail -n +2 coverage.unit.txt >> coverage.txt
           tail -n +2 coverage.integration.txt >> coverage.txt
+          tail -n +2 coverage.full.txt >> coverage.txt
 
       - name: Upload test coverage
         uses: codecov/codecov-action@v5
