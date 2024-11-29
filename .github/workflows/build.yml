@@ -255,7 +255,7 @@ jobs:
             # 新特性
             echo "#### ⭐ 新特性"
             git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --reverse | grep -E "^- feat" | \
-              sed -E 's/^- feat(\([^)]+\))?://' | while read -r line; do
+              sed -E 's/^- feat(\([^)]+\))?:/- /' | while read -r line; do
                 HASH=$(echo "$line" | grep -o '([a-f0-9]\{7\})' | tr -d '()')
                 AUTHOR="${AUTHOR_MAP[$HASH]}"
                 echo "$line ${AUTHOR}"
@@ -265,7 +265,7 @@ jobs:
             # 优化
             echo "#### ⚡️ 优化"
             git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --reverse | grep -E "^- (perf|refactor)" | \
-              sed -E 's/^- (perf|refactor)(\([^)]+\))?://' | while read -r line; do
+              sed -E 's/^- (perf|refactor)(\([^)]+\))?:/- /' | while read -r line; do
                 HASH=$(echo "$line" | grep -o '([a-f0-9]\{7\})' | tr -d '()')
                 AUTHOR="${AUTHOR_MAP[$HASH]}"
                 echo "$line ${AUTHOR}"
@@ -275,7 +275,7 @@ jobs:
             # Bug 修复
             echo "#### 🐞 Bug 修复"
             git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --reverse | grep -E "^- fix" | \
-              sed -E 's/^- fix(\([^)]+\))?://' | while read -r line; do
+              sed -E 's/^- fix(\([^)]+\))?:/- /' | while read -r line; do
                 HASH=$(echo "$line" | grep -o '([a-f0-9]\{7\})' | tr -d '()')
                 AUTHOR="${AUTHOR_MAP[$HASH]}"
                 echo "$line ${AUTHOR}"
@@ -285,7 +285,7 @@ jobs:
             # 文档更新
             echo "#### 📚 文档更新"
             git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --reverse | grep -E "^- docs" | \
-              sed -E 's/^- docs(\([^)]+\))?://' | while read -r line; do
+              sed -E 's/^- docs(\([^)]+\))?:/- /' | while read -r line; do
                 HASH=$(echo "$line" | grep -o '([a-f0-9]\{7\})' | tr -d '()')
                 AUTHOR="${AUTHOR_MAP[$HASH]}"
                 echo "$line ${AUTHOR}"
@@ -295,7 +295,7 @@ jobs:
             # 依赖更新
             echo "#### ⬆️ 依赖更新"
             git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --reverse | grep -E "^- (build|deps)" | \
-              sed -E 's/^- (build|deps)(\([^)]+\))?://' | while read -r line; do
+              sed -E 's/^- (build|deps)(\([^)]+\))?:/- /' | while read -r line; do
                 HASH=$(echo "$line" | grep -o '([a-f0-9]\{7\})' | tr -d '()')
                 AUTHOR="${AUTHOR_MAP[$HASH]}"
                 echo "$line ${AUTHOR}"
@@ -305,7 +305,7 @@ jobs:
             # 其他更改
             echo "#### 🔨 其他更改"
             git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --reverse | \
-              grep -vE "^- (feat|fix|docs|style|refactor|perf|test|build|ci|chore|deps):" | while read -r line; do
+              grep -vE "^- (feat|fix|docs|refactor|perf|build|deps):" | while read -r line; do
                 HASH=$(echo "$line" | grep -o '([a-f0-9]\{7\})' | tr -d '()')
                 AUTHOR="${AUTHOR_MAP[$HASH]}"
                 echo "$line ${AUTHOR}"
@@ -314,7 +314,6 @@ jobs:
             
             # 贡献者
             echo "### 👥 贡献者"
-            echo -n "感谢以下贡献者："
             printf '%s\n' "${AUTHOR_MAP[@]}" | sort -u | tr '\n' ' '
             echo
             echo
