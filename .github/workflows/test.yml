@@ -104,6 +104,7 @@ jobs:
           tail -n +2 coverage.integration.txt >> coverage.txt
 
       - name: Upload test coverage
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           file: ./coverage.txt
