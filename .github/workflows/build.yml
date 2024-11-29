@@ -213,39 +213,89 @@ jobs:
         with:
           fetch-depth: 0
       
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.2'
-          bundler-cache: true
-      
-      - name: Install github-changelog-generator
-        run: gem install github_changelog_generator
-
-      - name: Create changelog directory
-        run: mkdir -p changelog
-      
       - name: Generate changelog
-        env:
-          CHANGELOG_GITHUB_TOKEN: ${{ secrets.ACTION_GITHUB_TOKEN }}
         run: |
-          # 获取版本号
+          # 获取版本信息
           VERSION="${{ needs.check.outputs.version }}"
+          CURRENT_TAG="v${VERSION}"
+          PREVIOUS_TAG=$(git describe --abbrev=0 --tags `git rev-list --tags --skip=1 --max-count=1` 2>/dev/null || echo "")
+          CURRENT_DATE=$(date +'%Y-%m-%d')
           
-          # 配置生成器
-          github_changelog_generator \
-            --user ${{ github.repository_owner }} \
-            --project $(basename ${{ github.repository }}) \
-            --token $CHANGELOG_GITHUB_TOKEN \
-            --since-tag $(git describe --abbrev=0 --tags `git rev-list --tags --skip=1 --max-count=1` 2>/dev/null || echo "") \
-            --future-release "${VERSION}" \
-            --output changelog/CHANGELOG.md
-
-      - name: Process changelog
-        run: |
-          # 移除不需要的部分
-          sed -i '/^\* \*This Changelog/d' changelog/CHANGELOG.md
-       
+          # 创建 changelog 目录
+          mkdir -p changelog
+          
+          # 开始生成 changelog
+          {
+            echo "# 更新日志"
+            echo
+            echo "## ${CURRENT_TAG} (${CURRENT_DATE})"
+            echo
+            echo "### 主要更新"
+            echo
+            
+            # 新特性
+            echo "#### ⭐ 新特性"
+            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h) @%an" --reverse | grep -E "^feat" | \
+              sed -E 's/^feat(\([^)]+\))?://' || echo "- 无"
+            echo
+            
+            # 优化
+            echo
+            echo "#### ⚡️ 优化"
+            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h) @%an" --reverse | grep -E "^(perf|refactor)" | \
+              sed -E 's/^(perf|refactor)(\([^)]+\))?://' || echo "- 无"
+            echo
+            
+            # Bug 修复
+            echo
+            echo "#### 🐞 Bug 修复"
+            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h) @%an" --reverse | grep -E "^fix" | \
+              sed -E 's/^fix(\([^)]+\))?://' || echo "- 无"
+            echo
+            
+            # 文档更新
+            echo
+            echo "#### 📚 文档更新"
+            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h) @%an" --reverse | grep -E "^docs" | \
+              sed -E 's/^docs(\([^)]+\))?://' || echo "- 无"
+            echo
+            
+            # 依赖更新
+            echo
+            echo "#### ⬆️ 依赖更新"
+            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h) @%an" --reverse | grep -E "^(build|deps)" | \
+              sed -E 's/^(build|deps)(\([^)]+\))?://' || echo "- 无"
+            echo
+            
+            # 其他更改
+            echo
+            echo "#### 🔨 Other Changes"
+            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h) @%an" --reverse | \
+              grep -vE "^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|deps):" || echo "- 无"
+            echo
+            
+            # 贡献者
+            echo
+            echo "### 👥 Contributors"
+            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"@%an" | sort -u | tr '\n' ' '
+            echo
+            echo
+            
+            # 完整变更记录链接
+            echo "[Full Changelog](https://github.com/${{ github.repository }}/compare/${PREVIOUS_TAG}...${CURRENT_TAG})"
+            
+          } > changelog/CHANGELOG.md
+          
+          # 移除空分类
+          sed -i '/- 无/d' changelog/CHANGELOG.md
+          
+          # 美化格式
+          sed -i 's/^- /- /' changelog/CHANGELOG.md  # 统一列表缩进
+          sed -i 's/@/ @/g' changelog/CHANGELOG.md   # 用户名前加空格
+          
+          # 显示生成的内容
+          cat changelog/CHANGELOG.md
+      
       - name: Upload changelog
         uses: actions/upload-artifact@v4
         with:
