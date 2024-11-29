@@ -35,7 +35,7 @@ func setupTestEnv(t *testing.T) (*config.Config, *utils.Logger) {
 func createTestSQLFile(t *testing.T, content string) string {
 	tmpDir := t.TempDir()
 	filename := filepath.Join(tmpDir, "test.sql")
-	err := os.WriteFile(filename, []byte(content), 0644)
+	err := os.WriteFile(filename, []byte(content), 0o644)
 	require.NoError(t, err)
 	return filename
 }
