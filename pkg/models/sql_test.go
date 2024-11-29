@@ -21,7 +21,6 @@ func TestNewResult(t *testing.T) {
 	}
 	if len(result.Errors) != 0 {
 		t.Errorf("Expected empty Errors, got %d errors", len(result.Errors))
-
 	}
 	if result.StartTime.IsZero() {
 		t.Error("Expected StartTime to be set")

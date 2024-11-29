@@ -214,27 +214,26 @@ jobs:
           fetch-depth: 0
       
       - name: Generate changelog
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACTION_GITHUB_TOKEN }}
         run: |
           # 获取版本信息
           VERSION="${{ needs.check.outputs.version }}"
           CURRENT_TAG="${VERSION}"
           PREVIOUS_TAG=$(git describe --abbrev=0 --tags `git rev-list --tags --skip=1 --max-count=1` 2>/dev/null || echo "")
           CURRENT_DATE=$(date +'%Y-%m-%d')
-          
-          # 创建 changelog 目录
-          mkdir -p changelog
+          REPO="${{ github.repository }}"
           
           # 获取提交者的 GitHub 用户名映射
           declare -A AUTHOR_MAP
-          while IFS= read -r line; do
-            HASH=$(echo "$line" | cut -d' ' -f1)
-            USERNAME=$(git log -1 --format='%an' $HASH | \
-              curl -s -H "Authorization: token ${{ secrets.ACTION_GITHUB_TOKEN }}" \
-                   -H "Accept: application/vnd.github.v3+json" \
-                   "https://api.github.com/search/users?q=$(cat)%20in:name" | \
-              jq -r '.items[0].login // empty')
-            if [ ! -z "$USERNAME" ]; then
-              AUTHOR_MAP[$HASH]="@$USERNAME"
+          while IFS= read -r HASH; do
+            AUTHOR=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+                         -H "Accept: application/vnd.github+json" \
+                         -H "X-GitHub-Api-Version: 2022-11-28" \
+                         "https://api.github.com/repos/${REPO}/commits/${HASH}" | \
+                    jq -r '.author.login // empty')
+            if [ ! -z "$AUTHOR" ]; then
+              AUTHOR_MAP[$HASH]="@$AUTHOR"
             fi
           done < <(git log ${PREVIOUS_TAG}..HEAD --format="%H")
           
@@ -249,12 +248,12 @@ jobs:
             
             # 新特性
             echo "#### ⭐ 新特性"
-            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --reverse | grep -E "^- feat" | \
+            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --reverse | grep -E "^feat" | \
               sed -E 's/^feat(\([^)]+\))?://' | while read -r line; do
                 HASH=$(echo "$line" | grep -o '([a-f0-9]\{7\})' | tr -d '()')
                 AUTHOR="${AUTHOR_MAP[$HASH]}"
-                echo "    $line ${AUTHOR}"
-              done || echo "    - 无"
+                echo "$line ${AUTHOR}"
+              done || echo "- 无"
             echo
             
             # 优化
@@ -263,8 +262,8 @@ jobs:
               sed -E 's/^(perf|refactor)(\([^)]+\))?://' | while read -r line; do
                 HASH=$(echo "$line" | grep -o '([a-f0-9]\{7\})' | tr -d '()')
                 AUTHOR="${AUTHOR_MAP[$HASH]}"
-                echo "    $line ${AUTHOR}"
-              done || echo "    - 无"
+                echo "$line ${AUTHOR}"
+              done || echo "- 无"
             echo
             
             # Bug 修复
@@ -273,8 +272,8 @@ jobs:
               sed -E 's/^fix(\([^)]+\))?://' | while read -r line; do
                 HASH=$(echo "$line" | grep -o '([a-f0-9]\{7\})' | tr -d '()')
                 AUTHOR="${AUTHOR_MAP[$HASH]}"
-                echo "    $line ${AUTHOR}"
-              done || echo "    - 无"
+                echo "$line ${AUTHOR}"
+              done || echo "- 无"
             echo
             
             # 文档更新
@@ -283,8 +282,8 @@ jobs:
               sed -E 's/^docs(\([^)]+\))?://' | while read -r line; do
                 HASH=$(echo "$line" | grep -o '([a-f0-9]\{7\})' | tr -d '()')
                 AUTHOR="${AUTHOR_MAP[$HASH]}"
-                echo "    $line ${AUTHOR}"
-              done || echo "    - 无"
+                echo "$line ${AUTHOR}"
+              done || echo "- 无"
             echo
             
             # 依赖更新
@@ -293,8 +292,8 @@ jobs:
               sed -E 's/^(build|deps)(\([^)]+\))?://' | while read -r line; do
                 HASH=$(echo "$line" | grep -o '([a-f0-9]\{7\})' | tr -d '()')
                 AUTHOR="${AUTHOR_MAP[$HASH]}"
-                echo "    $line ${AUTHOR}"
-              done || echo "    - 无"
+                echo "$line ${AUTHOR}"
+              done || echo "- 无"
             echo
             
             # 其他更改
@@ -303,26 +302,24 @@ jobs:
               grep -vE "^(- feat|- fix|- docs|- style|- refactor|- perf|- test|- build|- ci|- chore|- deps):" | while read -r line; do
                 HASH=$(echo "$line" | grep -o '([a-f0-9]\{7\})' | tr -d '()')
                 AUTHOR="${AUTHOR_MAP[$HASH]}"
-                echo "    $line ${AUTHOR}"
-              done || echo "    - 无"
+                echo "$line ${AUTHOR}"
+              done || echo "- 无"
             echo
             
             # 贡献者
             echo "### 👥 贡献者"
             echo -n "感谢以下贡献者："
-            for username in $(printf '%s\n' "${AUTHOR_MAP[@]}" | sort -u); do
-              echo -n " $username"
-            done
+            printf '%s\n' "${AUTHOR_MAP[@]}" | sort -u | tr '\n' ' '
             echo
             echo
             
             # 完整变更记录链接
-            echo "[Full Changelog](https://github.com/${{ github.repository }}/compare/${PREVIOUS_TAG}...${CURRENT_TAG})"
+            echo "[Full Changelog](https://github.com/${REPO}/compare/${PREVIOUS_TAG}...${CURRENT_TAG})"
             
           } > changelog/CHANGELOG.md
           
           # 移除空分类
-          sed -i '/    - 无/d' changelog/CHANGELOG.md
+          sed -i '/- 无/d' changelog/CHANGELOG.md
           sed -i '/#### .*/{ N; /####.*\n$/d }' changelog/CHANGELOG.md
           
           # 显示生成的内容
