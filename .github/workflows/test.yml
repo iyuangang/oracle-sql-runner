@@ -41,6 +41,15 @@ jobs:
         with:
           go-version: '1.22'
           cache: true
+
+      - name: Restore or Cache Oracle Instant Client
+        uses: actions/cache@v4
+        with:
+          path: |
+            /opt/oracle/instantclient_21_9
+          key: ubuntu-22.04-oracle-instantclient-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ubuntu-22.04-oracle-instantclient-
       
       - name: Install Oracle Instant Client
         run: |
@@ -48,10 +57,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libaio1
           
-          # 下载并解压 Basic 包
-          wget https://download.oracle.com/otn_software/linux/instantclient/219000/instantclient-basic-linux.x64-21.9.0.0.0dbru.zip
-          sudo mkdir -p /opt/oracle
-          sudo unzip instantclient-basic-linux.x64-21.9.0.0.0dbru.zip -d /opt/oracle
+          if [ ! -d /opt/oracle/instantclient_21_9 ]; then
+            wget https://download.oracle.com/otn_software/linux/instantclient/219000/instantclient-basic-linux.x64-21.9.0.0.0dbru.zip
+            sudo mkdir -p /opt/oracle
+            sudo unzip instantclient-basic-linux.x64-21.9.0.0.0dbru.zip -d /opt/oracle
+            sudo mkdir -p /opt/oracle/instantclient_21_9/network/admin
+            echo "XE =
+              (DESCRIPTION =
+              (ADDRESS = (PROTOCOL = TCP)(HOST = localhost)(PORT = 1521))
+              (CONNECT_DATA =
+                (SERVER = DEDICATED)
+                (SERVICE_NAME = FREEPDB1)
+              )
+            )" | sudo tee /opt/oracle/instantclient_21_9/network/admin/tnsnames.ora
+          fi
           
           # 配置环境变量
           echo "/opt/oracle/instantclient_21_9" | sudo tee /etc/ld.so.conf.d/oracle-instantclient.conf
@@ -60,16 +79,6 @@ jobs:
           echo "export LD_LIBRARY_PATH=/opt/oracle/instantclient_21_9:$LD_LIBRARY_PATH" >> $GITHUB_ENV
           echo "export PATH=/opt/oracle/instantclient_21_9:$PATH" >> $GITHUB_ENV
           
-          # 创建 TNS 配置
-          sudo mkdir -p /opt/oracle/instantclient_21_9/network/admin
-          echo "XE =
-            (DESCRIPTION =
-              (ADDRESS = (PROTOCOL = TCP)(HOST = localhost)(PORT = 1521))
-              (CONNECT_DATA =
-                (SERVER = DEDICATED)
-                (SERVICE_NAME = FREEPDB1)
-              )
-            )" | sudo tee /opt/oracle/instantclient_21_9/network/admin/tnsnames.ora
 
       - name: Create test config
         run: |

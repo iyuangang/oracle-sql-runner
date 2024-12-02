@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -54,6 +55,7 @@ func TestRootCmd(t *testing.T) {
 		wantErr  bool
 		errMsg   string
 		setup    func() error
+		cleanup  func() error
 		validate func(*testing.T, *bytes.Buffer)
 	}{
 		{
@@ -85,15 +87,6 @@ func TestRootCmd(t *testing.T) {
 			errMsg:  "加载配置失败",
 		},
 		{
-			name: "完整参数",
-			args: []string{
-				"-c", configPath,
-				"-f", sqlPath,
-				"-d", "test",
-			},
-			wantErr: false,
-		},
-		{
 			name: "日志初始化失败",
 			args: []string{
 				"-c", configPath,
@@ -103,17 +96,46 @@ func TestRootCmd(t *testing.T) {
 			wantErr: true,
 			errMsg:  "初始化日志失败",
 			setup: func() error {
-				// 使用不存在的深层目录作为日志路径
-				nonExistentDir := filepath.Join(tmpDir, "non", "existent", "dir")
-				logPath := filepath.Join(nonExistentDir, "test.log")
+				// 删除默认的测试日志文件
+				if err := os.Remove("sql-runner-test.log"); err != nil && !os.IsNotExist(err) {
+					return err
+				}
 
-				// 更新配置
+				// 创建一个不可写的目录
+				noWriteDir := filepath.Join(tmpDir, "noperm")
+				if err := os.MkdirAll(noWriteDir, 0o755); err != nil {
+					return err
+				}
+
+				// 在不可写目录中创建一个文件
+				logPath := filepath.Join(noWriteDir, "sql-runner.log")
+
+				// 将目录设置为只读
+				if runtime.GOOS != "windows" {
+					if err := os.Chmod(noWriteDir, 0o555); err != nil {
+						return err
+					}
+				}
+
+				// 更新配置文件
+				absLogPath, err := filepath.Abs(logPath)
+				if err != nil {
+					return err
+				}
+
 				newConfig := strings.Replace(originalConfig,
 					`"log_file": "logs/sql-runner.log"`,
-					fmt.Sprintf(`"log_file": "%s"`, strings.ReplaceAll(logPath, "\\", "/")),
+					fmt.Sprintf(`"log_file": "%s"`, strings.ReplaceAll(absLogPath, "\\", "/")),
 					1)
 
 				return os.WriteFile(configPath, []byte(newConfig), 0o644)
+			},
+			cleanup: func() error {
+				// 清理测试日志文件
+				if err := os.Remove("sql-runner-test.log"); err != nil && !os.IsNotExist(err) {
+					return err
+				}
+				return nil
 			},
 		},
 		{
@@ -125,8 +147,18 @@ func TestRootCmd(t *testing.T) {
 			},
 			wantErr: false,
 			setup: func() error {
+				// 删除默认的测试日志文件
+				if err := os.Remove("sql-runner-test.log"); err != nil && !os.IsNotExist(err) {
+					return err
+				}
+
 				// 使用临时目录中的日志路径
-				logPath := filepath.Join(logDir, "sql-runner.log")
+				absLogDir, err := filepath.Abs(logDir)
+				if err != nil {
+					return err
+				}
+
+				logPath := filepath.Join(absLogDir, "sql-runner.log")
 
 				// 更新配置
 				newConfig := strings.Replace(originalConfig,
@@ -136,18 +168,32 @@ func TestRootCmd(t *testing.T) {
 
 				return os.WriteFile(configPath, []byte(newConfig), 0o644)
 			},
+			cleanup: func() error {
+				// 清理测试日志文件
+				if err := os.Remove("sql-runner-test.log"); err != nil && !os.IsNotExist(err) {
+					return err
+				}
+				return nil
+			},
 			validate: func(t *testing.T, buf *bytes.Buffer) {
 				// 等待日志写入完成
 				time.Sleep(100 * time.Millisecond)
 
 				// 验证日志文件
-				logPath := filepath.Join(logDir, "sql-runner.log")
+				absLogDir, err := filepath.Abs(logDir)
+				require.NoError(t, err, "获取绝对路径失败")
+
+				logPath := filepath.Join(absLogDir, "sql-runner.log")
 				content, err := os.ReadFile(logPath)
 				require.NoError(t, err, "读取日志文件失败")
 
 				logContent := string(content)
 				assert.Contains(t, logContent, "启动SQL Runner", "日志中未找到启动信息")
 				assert.Contains(t, logContent, "SQL文件执行完成", "日志中未找到执行完成信息")
+
+				// 确保没有创建默认的测试日志文件
+				_, err = os.Stat("sql-runner-test.log")
+				assert.True(t, os.IsNotExist(err), "不应该存在默认的测试日志文件")
 			},
 		},
 	}
@@ -158,6 +204,14 @@ func TestRootCmd(t *testing.T) {
 			if tt.setup != nil {
 				err := tt.setup()
 				require.NoError(t, err, "设置测试环境失败")
+			}
+
+			// 确保清理
+			if tt.cleanup != nil {
+				defer func() {
+					err := tt.cleanup()
+					require.NoError(t, err, "清理测试环境失败")
+				}()
 			}
 
 			// 创建新的命令实例

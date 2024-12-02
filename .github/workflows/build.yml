@@ -181,7 +181,6 @@ jobs:
       - name: Install dependencies
         run: |
           dnf install -y gcc gcc-c++ git make curl
-          curl -L https://go.dev/dl/go1.22.9.linux-amd64.tar.gz | tar -C /usr/local -xzf -
 
       - uses: actions/checkout@v4
 
@@ -191,9 +190,16 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
+            /usr/local/go/
           key: rocky8-amd64-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             rocky8-amd64-go-
+
+      - name: Install Go
+        run: |
+          if [ ! -d /usr/local/go ]; then
+            curl -L https://go.dev/dl/go1.22.9.linux-amd64.tar.gz | tar -C /usr/local -xzf -
+          fi
 
       - name: Build
         run: |
