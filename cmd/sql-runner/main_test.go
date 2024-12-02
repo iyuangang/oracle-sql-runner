@@ -106,13 +106,13 @@ func TestRootCmd(t *testing.T) {
 				// 使用不存在的深层目录作为日志路径
 				nonExistentDir := filepath.Join(tmpDir, "non", "existent", "dir")
 				logPath := filepath.Join(nonExistentDir, "test.log")
-				
+
 				// 更新配置
 				newConfig := strings.Replace(originalConfig,
 					`"log_file": "logs/sql-runner.log"`,
 					fmt.Sprintf(`"log_file": "%s"`, strings.ReplaceAll(logPath, "\\", "/")),
 					1)
-				
+
 				return os.WriteFile(configPath, []byte(newConfig), 0o644)
 			},
 		},
@@ -127,13 +127,13 @@ func TestRootCmd(t *testing.T) {
 			setup: func() error {
 				// 使用临时目录中的日志路径
 				logPath := filepath.Join(logDir, "sql-runner.log")
-				
+
 				// 更新配置
 				newConfig := strings.Replace(originalConfig,
 					`"log_file": "logs/sql-runner.log"`,
 					fmt.Sprintf(`"log_file": "%s"`, strings.ReplaceAll(logPath, "\\", "/")),
 					1)
-				
+
 				return os.WriteFile(configPath, []byte(newConfig), 0o644)
 			},
 			validate: func(t *testing.T, buf *bytes.Buffer) {
