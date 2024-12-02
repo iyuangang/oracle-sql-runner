@@ -2,90 +2,85 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
-
-func TestMain(m *testing.M) {
-	// 保存原始的 stdout
-	oldStdout := os.Stdout
-	defer func() { os.Stdout = oldStdout }()
-
-	// 运行测试
-	code := m.Run()
-	os.Exit(code)
-}
 
 func setupTestFiles(t *testing.T) (string, string, string) {
 	// 创建临时目录
-	tmpDir, err := os.MkdirTemp("", "sql-runner-test")
-	if err != nil {
-		t.Fatalf("创建临时目录失败: %v", err)
-	}
+	tmpDir := t.TempDir()
 
-	// 创建测试配置文件
-	configPath := filepath.Join(tmpDir, "config.json")
-	configContent := `{
-		"databases": {
-			"test": {
-				"name": "test",
-				"user": "test",
-				"password": "test",
-				"host": "localhost",
-				"port": 1521,
-				"service": "test"
-			}
-		},
-		"max_retries": 3,
-		"max_concurrent": 2,
-		"batch_size": 1000,
-		"timeout": 30,
-		"log_level": "debug"
-	}`
-	if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
-		t.Fatalf("创建配置文件失败: %v", err)
-	}
+	// 复制配置文件到临时目录
+	configSrc := "../../config.json"
+	configDst := filepath.Join(tmpDir, "config.json")
+	configData, err := os.ReadFile(configSrc)
+	require.NoError(t, err, "读取配置文件失败")
+	err = os.WriteFile(configDst, configData, 0o644)
+	require.NoError(t, err, "写入配置文件失败")
 
-	// 创建测试SQL文件
+	// 创建 SQL 文件
 	sqlPath := filepath.Join(tmpDir, "test.sql")
-	sqlContent := "SELECT 1 FROM dual;"
-	if err := os.WriteFile(sqlPath, []byte(sqlContent), 0o644); err != nil {
-		t.Fatalf("创建SQL文件失败: %v", err)
-	}
+	err = os.WriteFile(sqlPath, []byte("SELECT 1 FROM DUAL;"), 0o644)
+	require.NoError(t, err, "创建 SQL 文件失败")
 
-	return tmpDir, configPath, sqlPath
+	return tmpDir, configDst, sqlPath
 }
 
 func TestRootCmd(t *testing.T) {
 	tmpDir, configPath, sqlPath := setupTestFiles(t)
 	defer os.RemoveAll(tmpDir)
 
+	// 创建日志目录
+	logDir := filepath.Join(tmpDir, "logs")
+	err := os.MkdirAll(logDir, 0o755)
+	require.NoError(t, err, "创建日志目录失败")
+
+	// 读取原始配置
+	configData, err := os.ReadFile(configPath)
+	require.NoError(t, err, "读取配置文件失败")
+	originalConfig := string(configData)
+
 	tests := []struct {
 		name     string
 		args     []string
 		wantErr  bool
 		errMsg   string
+		setup    func() error
 		validate func(*testing.T, *bytes.Buffer)
 	}{
 		{
-			name:    "缺少SQL文件参数",
-			args:    []string{"-d", "test"},
+			name: "缺少SQL文件参数",
+			args: []string{
+				"-c", configPath,
+				"-d", "test",
+			},
 			wantErr: true,
-			errMsg:  "请指定SQL文件路径",
+			errMsg:  "请指定SQL文件路径 (-f)",
 		},
 		{
-			name:    "缺少数据库参数",
-			args:    []string{"-f", sqlPath},
+			name: "缺少数据库参数",
+			args: []string{
+				"-c", configPath,
+				"-f", sqlPath,
+			},
 			wantErr: true,
-			errMsg:  "请指定数据库名称",
+			errMsg:  "请指定数据库名称 (-d)",
 		},
 		{
-			name:    "无效配置文件",
-			args:    []string{"-c", "invalid.json", "-f", sqlPath, "-d", "test"},
+			name: "无效配置文件",
+			args: []string{
+				"-c", "nonexistent.json",
+				"-f", sqlPath,
+				"-d", "test",
+			},
 			wantErr: true,
 			errMsg:  "加载配置失败",
 		},
@@ -95,15 +90,76 @@ func TestRootCmd(t *testing.T) {
 				"-c", configPath,
 				"-f", sqlPath,
 				"-d", "test",
-				"-v",
 			},
-			wantErr: true, // 因为无法连接到实际数据库
-			errMsg:  "创建执行器失败",
+			wantErr: false,
+		},
+		{
+			name: "日志初始化失败",
+			args: []string{
+				"-c", configPath,
+				"-f", sqlPath,
+				"-d", "test",
+			},
+			wantErr: true,
+			errMsg:  "初始化日志失败",
+			setup: func() error {
+				// 使用不存在的深层目录作为日志路径
+				nonExistentDir := filepath.Join(tmpDir, "non", "existent", "dir")
+				logPath := filepath.Join(nonExistentDir, "test.log")
+				
+				// 更新配置
+				newConfig := strings.Replace(originalConfig,
+					`"log_file": "logs/sql-runner.log"`,
+					fmt.Sprintf(`"log_file": "%s"`, strings.ReplaceAll(logPath, "\\", "/")),
+					1)
+				
+				return os.WriteFile(configPath, []byte(newConfig), 0o644)
+			},
+		},
+		{
+			name: "成功执行并正确关闭",
+			args: []string{
+				"-c", configPath,
+				"-f", sqlPath,
+				"-d", "test",
+			},
+			wantErr: false,
+			setup: func() error {
+				// 使用临时目录中的日志路径
+				logPath := filepath.Join(logDir, "sql-runner.log")
+				
+				// 更新配置
+				newConfig := strings.Replace(originalConfig,
+					`"log_file": "logs/sql-runner.log"`,
+					fmt.Sprintf(`"log_file": "%s"`, strings.ReplaceAll(logPath, "\\", "/")),
+					1)
+				
+				return os.WriteFile(configPath, []byte(newConfig), 0o644)
+			},
+			validate: func(t *testing.T, buf *bytes.Buffer) {
+				// 等待日志写入完成
+				time.Sleep(100 * time.Millisecond)
+
+				// 验证日志文件
+				logPath := filepath.Join(logDir, "sql-runner.log")
+				content, err := os.ReadFile(logPath)
+				require.NoError(t, err, "读取日志文件失败")
+
+				logContent := string(content)
+				assert.Contains(t, logContent, "启动SQL Runner", "日志中未找到启动信息")
+				assert.Contains(t, logContent, "SQL文件执行完成", "日志中未找到执行完成信息")
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// 执行设置
+			if tt.setup != nil {
+				err := tt.setup()
+				require.NoError(t, err, "设置测试环境失败")
+			}
+
 			// 创建新的命令实例
 			cmd := &cobra.Command{
 				Use:     "sql-runner",
