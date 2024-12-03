@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/iyuangang/oracle-sql-runner/internal/config"
 	"github.com/iyuangang/oracle-sql-runner/internal/core"
@@ -48,13 +49,21 @@ func run(cmd *cobra.Command, args []string) error {
 	// 加载配置
 	cfg, err := config.Load(configFile)
 	if err != nil {
-		return fmt.Errorf("加载配置失败: %v", err)
+		return fmt.Errorf("加载配置失败: %w", err)
 	}
 
-	// 创建日志目录和初始化日志
-	logger, err := utils.NewLogger(cfg.LogFile, cfg.LogLevel, verbose)
+	// 确保日志文件路径是绝对路径
+	logFile := cfg.LogFile
+	if !filepath.IsAbs(logFile) {
+		// 使用配置文件所在目录作为基准目录
+		configDir := filepath.Dir(configFile)
+		logFile = filepath.Join(configDir, logFile)
+	}
+
+	// 初始化日志
+	logger, err := utils.NewLogger(logFile, cfg.LogLevel, verbose)
 	if err != nil {
-		return fmt.Errorf("初始化日志失败: %v", err)
+		return fmt.Errorf("初始化日志失败: %w", err)
 	}
 	defer logger.Close()
 

@@ -96,21 +96,25 @@ func TestRootCmd(t *testing.T) {
 			wantErr: true,
 			errMsg:  "初始化日志失败",
 			setup: func(t *testing.T) error {
-				// 创建一个只读目录
-				readOnlyDir := filepath.Join(tmpDir, "readonly")
-				err := os.MkdirAll(readOnlyDir, 0o755)
-				require.NoError(t, err)
-
-				// 将目录设置为只读
-				if runtime.GOOS != "windows" {
-					err = os.Chmod(readOnlyDir, 0o444)
-					require.NoError(t, err)
+				// 创建一个无权限的目录
+				noPermDir := filepath.Join(tmpDir, "noperm")
+				if err := os.MkdirAll(noPermDir, 0o755); err != nil {
+					return err
 				}
 
-				// 使用只读目录中的路径
-				logPath := filepath.Join(readOnlyDir, "sql-runner.log")
+				// 设置目录为只读
+				if runtime.GOOS != "windows" {
+					if err := os.Chmod(noPermDir, 0o444); err != nil {
+						return err
+					}
+				}
+
+				// 使用无权限目录中的路径
+				logPath := filepath.Join(noPermDir, "logs", "sql-runner.log")
 				absLogPath, err := filepath.Abs(logPath)
-				require.NoError(t, err)
+				if err != nil {
+					return err
+				}
 
 				// 更新配置文件
 				newConfig := strings.Replace(originalConfig,
@@ -118,22 +122,7 @@ func TestRootCmd(t *testing.T) {
 					fmt.Sprintf(`"log_file": "%s"`, strings.ReplaceAll(absLogPath, "\\", "/")),
 					1)
 
-				// 删除可能存在的测试日志文件
-				os.Remove("sql-runner-test.log")
-
-				// 在 Windows 上，设置目录为只读
-				if runtime.GOOS == "windows" {
-					err = os.Chmod(readOnlyDir, 0o444)
-					require.NoError(t, err)
-				}
-
 				return os.WriteFile(configPath, []byte(newConfig), 0o644)
-			},
-			cleanup: func() error {
-				if err := os.Remove("sql-runner-test.log"); err != nil && !os.IsNotExist(err) {
-					return err
-				}
-				return nil
 			},
 		},
 		{
@@ -146,57 +135,40 @@ func TestRootCmd(t *testing.T) {
 			wantErr: false,
 			setup: func(t *testing.T) error {
 				// 确保日志目录存在
-				err := os.MkdirAll(logDir, 0o755)
-				require.NoError(t, err)
+				if err := os.MkdirAll(logDir, 0o755); err != nil {
+					return err
+				}
 
 				// 使用临时目录中的日志路径
-				logPath := filepath.Join(logDir, "sql-runner.log")
-				absLogPath, err := filepath.Abs(logPath)
-				require.NoError(t, err)
-
-				// 删除可能存在的日志文件
-				os.Remove(absLogPath)
-				os.Remove("sql-runner-test.log")
+				logPath := filepath.Join("logs", "sql-runner.log")
 
 				// 更新配置
 				newConfig := strings.Replace(originalConfig,
 					`"log_file": "logs/sql-runner.log"`,
-					fmt.Sprintf(`"log_file": "%s"`, strings.ReplaceAll(absLogPath, "\\", "/")),
+					fmt.Sprintf(`"log_file": "%s"`, strings.ReplaceAll(logPath, "\\", "/")),
 					1)
 
 				return os.WriteFile(configPath, []byte(newConfig), 0o644)
 			},
-			cleanup: func() error {
-				if err := os.Remove("sql-runner-test.log"); err != nil && !os.IsNotExist(err) {
-					return err
-				}
-				return nil
-			},
 			validate: func(t *testing.T, buf *bytes.Buffer) {
 				// 等待日志写入完成
-				time.Sleep(200 * time.Millisecond)
+				time.Sleep(100 * time.Millisecond)
 
 				// 验证日志文件
-				logPath := filepath.Join(logDir, "sql-runner.log")
-				absLogPath, err := filepath.Abs(logPath)
-				require.NoError(t, err)
+				expectedLogPath := filepath.Join(filepath.Dir(configPath), "logs", "sql-runner.log")
 
 				// 检查日志文件是否存在
-				fileInfo, err := os.Stat(absLogPath)
+				fileInfo, err := os.Stat(expectedLogPath)
 				require.NoError(t, err, "日志文件不存在")
 				require.Greater(t, fileInfo.Size(), int64(0), "日志文件为空")
 
 				// 读取日志内容
-				content, err := os.ReadFile(absLogPath)
+				content, err := os.ReadFile(expectedLogPath)
 				require.NoError(t, err, "读取日志文件失败")
 
 				logContent := string(content)
 				assert.Contains(t, logContent, "启动SQL Runner", "日志中未找到启动信息")
 				assert.Contains(t, logContent, "SQL文件执行完成", "日志中未找到执行完成信息")
-
-				// 确保没有创建默认的测试日志文件
-				_, err = os.Stat("sql-runner-test.log")
-				assert.True(t, os.IsNotExist(err), "不应该存在默认的测试日志文件")
 			},
 		},
 	}

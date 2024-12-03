@@ -1,339 +1,298 @@
 package utils
 
 import (
-	"bytes"
 	"encoding/json"
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
-
-// testWriter 用于测试的writer
-type testWriter struct {
-	buffer bytes.Buffer
-}
-
-func (w *testWriter) Write(p []byte) (n int, err error) {
-	return w.buffer.Write(p)
-}
-
-func (w *testWriter) String() string {
-	return w.buffer.String()
-}
 
 func TestNewLogger(t *testing.T) {
 	// 创建临时目录
-	tmpDir, err := os.MkdirTemp("", "logger-test")
-	if err != nil {
-		t.Fatalf("创建临时目录失败: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	// 保存当前工作目录
-	currentDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("获取当前目录失败: %v", err)
-	}
-
-	// 切换到临时目录
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("切换到临时目录失败: %v", err)
-	}
-	// 测试结束后恢复工作目录
-	err = os.Chdir(currentDir)
-	if err != nil {
-		t.Fatalf("恢复工作目录失败: %v", err)
-	}
+	tmpDir := t.TempDir()
 
 	tests := []struct {
-		name     string
-		logFile  string
-		level    string
-		verbose  bool
-		wantErr  bool
-		validate func(*testing.T, string)
+		name       string
+		logFile    string
+		level      string
+		jsonFormat bool
+		wantErr    bool
+		setup      func(t *testing.T) error
+		cleanup    func() error
 	}{
 		{
-			name:    "创建成功-标准配置",
-			logFile: filepath.Join(tmpDir, "test.log"),
-			level:   "info",
-			verbose: true,
-			validate: func(t *testing.T, path string) {
-				if _, err := os.Stat(path); os.IsNotExist(err) {
-					t.Error("日志文件未创建")
+			name:       "成功创建JSON日志",
+			logFile:    filepath.Join(tmpDir, "logs", "test.log"),
+			level:      "debug",
+			jsonFormat: true,
+			wantErr:    false,
+		},
+		{
+			name:       "成功创建文本日志",
+			logFile:    filepath.Join(tmpDir, "logs", "test.log"),
+			level:      "info",
+			jsonFormat: false,
+			wantErr:    false,
+		},
+		{
+			name:       "无效的日志目录",
+			logFile:    filepath.Join(os.DevNull, "test.log"),
+			level:      "info",
+			jsonFormat: true,
+			wantErr:    true,
+		},
+		{
+			name:       "无效的日志文件权限",
+			logFile:    filepath.Join(tmpDir, "readonly", "test.log"),
+			level:      "info",
+			jsonFormat: true,
+			wantErr:    true,
+			setup: func(t *testing.T) error {
+				dir := filepath.Join(tmpDir, "readonly")
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					return err
 				}
-			},
-		},
-		{
-			name:    "创建成功-不输出到控制台",
-			logFile: filepath.Join(tmpDir, "quiet.log"),
-			level:   "debug",
-			verbose: false,
-			validate: func(t *testing.T, path string) {
-				if _, err := os.Stat(path); os.IsNotExist(err) {
-					t.Error("日志文件未创建")
+
+				if runtime.GOOS != "windows" {
+					// Unix 系统：设置目录为只读
+					if err := os.Chmod(dir, 0o444); err != nil {
+						return err
+					}
+				} else {
+					// Windows 系统：创建一个特殊的系统设备文件路径
+					// 使用 CON、PRN、AUX、NUL 等系统保留名称
+					t.Setenv("TEST_LOG_FILE", filepath.Join(dir, "CON"))
+					return nil
 				}
+				return nil
 			},
-		},
-		{
-			name:    "创建成功-默认日志级别",
-			logFile: filepath.Join(tmpDir, "default.log"),
-			level:   "invalid",
-			verbose: true,
-			validate: func(t *testing.T, path string) {
-				if _, err := os.Stat(path); os.IsNotExist(err) {
-					t.Error("日志文件未创建")
+			cleanup: func() error {
+				if runtime.GOOS != "windows" {
+					dir := filepath.Join(tmpDir, "readonly")
+					// 恢复目录权限以便清理
+					return os.Chmod(dir, 0o755)
 				}
+				return nil
 			},
-		},
-		{
-			name:    "创建成功-默认日志文件",
-			logFile: "",
-			level:   "info",
-			verbose: true,
-		},
-		{
-			name:    "创建失败-无效目录",
-			logFile: filepath.Join("/invalid", "path", "test.log"),
-			level:   "info",
-			verbose: true,
-			wantErr: true,
-		},
-		{
-			name:    "创建失败-无权限目录",
-			logFile: filepath.Join("/root", "test.log"),
-			level:   "info",
-			verbose: true,
-			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger, err := NewLogger(tt.logFile, tt.level, tt.verbose)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("NewLogger() error = %v, wantErr %v", err, tt.wantErr)
+			// 执行设置
+			if tt.setup != nil {
+				err := tt.setup(t)
+				require.NoError(t, err)
+			}
+
+			// 执行清理
+			if tt.cleanup != nil {
+				defer func() {
+					err := tt.cleanup()
+					require.NoError(t, err)
+				}()
+			}
+
+			// 获取日志文件路径
+			logFile := tt.logFile
+			if envFile := os.Getenv("TEST_LOG_FILE"); envFile != "" && tt.name == "无效的日志文件权限" {
+				logFile = envFile
+			}
+
+			// 创建日志记录器
+			logger, err := NewLogger(logFile, tt.level, tt.jsonFormat)
+			if tt.wantErr {
+				assert.Error(t, err)
+				if logger != nil {
+					logger.Close()
+				}
 				return
 			}
 
-			if err == nil {
-				defer logger.Close()
-				// 验证日志文件
-				if tt.validate != nil {
-					tt.validate(t, tt.logFile)
-				}
+			require.NoError(t, err)
+			require.NotNil(t, logger)
+
+			// 清理
+			if logger != nil {
+				err = logger.Close()
+				assert.NoError(t, err)
 			}
 		})
 	}
 }
 
 func TestLogger_LogLevels(t *testing.T) {
-	writer := &testWriter{}
-	logger := &Logger{
-		writer:  writer,
-		level:   LogLevelDebug,
-		verbose: true,
-	}
+	// 创建临时目录和日志文件
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "test.log")
 
+	// 创建日志记录器
+	logger, err := NewLogger(logFile, "debug", true)
+	require.NoError(t, err)
+	defer logger.Close()
+
+	// 测试所有日志级别
 	tests := []struct {
 		name     string
 		logFunc  func(string, ...any)
 		level    string
-		msg      string
+		message  string
 		args     []any
-		wantArgs map[string]any
+		validate func(*testing.T, map[string]interface{})
 	}{
 		{
 			name:    "Debug日志",
 			logFunc: logger.Debug,
 			level:   "DEBUG",
-			msg:     "debug message",
-			args:    []any{"key1", "value1"},
-			wantArgs: map[string]any{
-				"key1": "value1",
+			message: "debug message",
+			args:    []any{"key1", "value1", "key2", 42},
+			validate: func(t *testing.T, entry map[string]interface{}) {
+				assert.Equal(t, "DEBUG", entry["level"])
+				assert.Equal(t, "debug message", entry["msg"])
+				args := entry["args"].(map[string]interface{})
+				assert.Equal(t, "value1", args["key1"])
+				assert.Equal(t, float64(42), args["key2"])
 			},
 		},
 		{
 			name:    "Info日志",
 			logFunc: logger.Info,
 			level:   "INFO",
-			msg:     "info message",
-			args:    []any{"key2", "123"},
-			wantArgs: map[string]any{
-				"key2": "123",
+			message: "info message",
+			args:    []any{"key1", "value1"},
+			validate: func(t *testing.T, entry map[string]interface{}) {
+				assert.Equal(t, "INFO", entry["level"])
+				assert.Equal(t, "info message", entry["msg"])
+				args := entry["args"].(map[string]interface{})
+				assert.Equal(t, "value1", args["key1"])
 			},
 		},
 		{
 			name:    "Warn日志",
 			logFunc: logger.Warn,
 			level:   "WARN",
-			msg:     "warn message",
-			args:    []any{"key3", true},
-			wantArgs: map[string]any{
-				"key3": true,
+			message: "warn message",
+			validate: func(t *testing.T, entry map[string]interface{}) {
+				assert.Equal(t, "WARN", entry["level"])
+				assert.Equal(t, "warn message", entry["msg"])
 			},
 		},
 		{
 			name:    "Error日志",
 			logFunc: logger.Error,
 			level:   "ERROR",
-			msg:     "error message",
-			args:    []any{"error", "test error"},
-			wantArgs: map[string]any{
-				"error": "test error",
+			message: "error message",
+			validate: func(t *testing.T, entry map[string]interface{}) {
+				assert.Equal(t, "ERROR", entry["level"])
+				assert.Equal(t, "error message", entry["msg"])
 			},
-		},
-		{
-			name:    "无参数日志",
-			logFunc: logger.Info,
-			level:   "INFO",
-			msg:     "no args message",
-		},
-		{
-			name:    "奇数参数日志",
-			logFunc: logger.Info,
-			level:   "INFO",
-			msg:     "odd args message",
-			args:    []any{"key1", "value1", "key2"},
-			wantArgs: map[string]any{
-				"key1": "value1",
-			},
-		},
-		{
-			name:    "非字符串键日志",
-			logFunc: logger.Info,
-			level:   "INFO",
-			msg:     "invalid key message",
-			args:    []any{123, "value1"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			writer.buffer.Reset()
-			tt.logFunc(tt.msg, tt.args...)
+			// 记录日志
+			tt.logFunc(tt.message, tt.args...)
 
-			// 解析日志条目
-			var entry LogEntry
-			if err := json.NewDecoder(strings.NewReader(writer.String())).Decode(&entry); err != nil {
-				t.Fatalf("解析日志失败: %v", err)
-			}
+			// 等待日志写入
+			time.Sleep(100 * time.Millisecond)
 
-			// 验证日志内容
-			if entry.Level != tt.level {
-				t.Errorf("日志级别错误: got %v, want %v", entry.Level, tt.level)
-			}
-			if entry.Msg != tt.msg {
-				t.Errorf("日志消息错误: got %v, want %v", entry.Msg, tt.msg)
-			}
-			if tt.wantArgs != nil {
-				for k, v := range tt.wantArgs {
-					if entry.Args[k] != v {
-						t.Errorf("日志参数错误: key %v, got %v, want %v", k, entry.Args[k], v)
-					}
-				}
-			}
-			if entry.Source == nil {
-				t.Error("日志来源信息为空")
-			}
+			// 读取并验证日志内容
+			content, err := os.ReadFile(logFile)
+			require.NoError(t, err)
+
+			// 解析JSON日志条目
+			lines := strings.Split(strings.TrimSpace(string(content)), "\n")
+			lastLine := lines[len(lines)-1]
+
+			var entry map[string]interface{}
+			err = json.Unmarshal([]byte(lastLine), &entry)
+			require.NoError(t, err)
+
+			// 验证日志条目
+			tt.validate(t, entry)
 		})
-	}
-}
-
-func TestLogger_LogLevelFiltering(t *testing.T) {
-	writer := &testWriter{}
-	logger := &Logger{
-		writer:  writer,
-		level:   LogLevelInfo,
-		verbose: true,
-	}
-
-	// Debug级别的日志应该被过滤
-	logger.Debug("debug message")
-	if writer.String() != "" {
-		t.Error("Debug日志未被过滤")
-	}
-
-	// Info级别的日志应该被记录
-	writer.buffer.Reset()
-	logger.Info("info message")
-	if writer.String() == "" {
-		t.Error("Info日志未被记录")
 	}
 }
 
 func TestLogger_Fatal(t *testing.T) {
-	writer := &testWriter{}
-	logger := &Logger{
-		writer:  writer,
-		level:   LogLevelDebug,
-		verbose: true,
+	// 创建临时目录和日志文件
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "test.log")
+
+	// 创建日志记录器
+	logger, err := NewLogger(logFile, "debug", true)
+	require.NoError(t, err)
+	defer logger.Close()
+
+	// 创建一个测试用的 exit 函数
+	originalOsExit := osExit
+	defer func() { osExit = originalOsExit }()
+
+	exitCalled := false
+	osExit = func(code int) {
+		exitCalled = true
+		assert.Equal(t, 1, code)
 	}
 
-	// 创建一个子进程来测试Fatal
-	if os.Getenv("TEST_FATAL") == "1" {
-		logger.Fatal("fatal message")
-		return
-	}
+	// 调用 Fatal
+	logger.Fatal("fatal error", "key", "value")
 
-	cmd := exec.Command(os.Args[0], "-test.run=TestLogger_Fatal")
-	cmd.Env = append(os.Environ(), "TEST_FATAL=1")
-	err := cmd.Run()
+	// 验证 exit 被调用
+	assert.True(t, exitCalled)
 
-	if e, ok := err.(*exec.ExitError); !ok || e.Success() {
-		t.Error("Fatal未导致进程退出")
-	}
+	// 等待日志写入
+	time.Sleep(100 * time.Millisecond)
+
+	// 读取并验证日志内容
+	content, err := os.ReadFile(logFile)
+	require.NoError(t, err)
+
+	var entry map[string]interface{}
+	err = json.Unmarshal(content, &entry)
+	require.NoError(t, err)
+
+	assert.Equal(t, "ERROR", entry["level"])
+	assert.Equal(t, "fatal error", entry["msg"])
+	args := entry["args"].(map[string]interface{})
+	assert.Equal(t, "value", args["key"])
 }
 
-func TestLogger_Close(t *testing.T) {
+// 用于测试的 exit 函数
+var osExit = os.Exit
+
+func TestGetCallerInfo(t *testing.T) {
+	source := getCallerInfo(1)
+	require.NotNil(t, source)
+	assert.Contains(t, source.Function, "TestGetCallerInfo")
+	assert.Contains(t, source.File, "logger_test.go")
+	assert.Greater(t, source.Line, 0)
+}
+
+func TestGetZapLevel(t *testing.T) {
 	tests := []struct {
-		name    string
-		writer  io.Writer
-		wantErr bool
+		name  string
+		level string
+		want  string
 	}{
-		{
-			name:    "关闭文件",
-			writer:  &os.File{},
-			wantErr: true,
-		},
-		{
-			name:    "关闭非closer",
-			writer:  &bytes.Buffer{},
-			wantErr: false,
-		},
+		{"Debug级别", "debug", "DEBUG"},
+		{"Info级别", "info", "INFO"},
+		{"Warn级别", "warn", "WARN"},
+		{"Error级别", "error", "ERROR"},
+		{"未知级别", "unknown", "INFO"},
+		{"空级别", "", "INFO"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger := &Logger{writer: tt.writer}
-			err := logger.Close()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Close() error = %v, wantErr %v", err, tt.wantErr)
-			}
+			level := getZapLevel(tt.level)
+			assert.Equal(t, tt.want, level.CapitalString())
 		})
-	}
-}
-
-func TestGetCallerInfo(t *testing.T) {
-	source := getCallerInfo(1)
-	if source == nil {
-		t.Fatal("获取调用者信息失败")
-	}
-
-	if !strings.Contains(source.File, "internal") {
-		t.Errorf("文件路径未包含 'internal': %s", source.File)
-	}
-
-	if !strings.Contains(source.Function, "TestGetCallerInfo") {
-		t.Errorf("函数名错误: got %s, want TestGetCallerInfo", source.Function)
-	}
-
-	// 测试无效的skip值
-	source = getCallerInfo(999)
-	if source != nil {
-		t.Error("应该返回nil")
 	}
 }

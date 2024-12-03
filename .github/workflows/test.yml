@@ -43,7 +43,8 @@ jobs:
           cache: true
 
       - name: Restore Oracle Instant Client
-        uses: actions/restore-cache@v4
+        id: cache-primes
+        uses: actions/cache/restore@v4
         with:
           path: |
             /opt/oracle/instantclient_21_9
@@ -80,7 +81,7 @@ jobs:
           echo "export PATH=/opt/oracle/instantclient_21_9:$PATH" >> $GITHUB_ENV
           
       - name: Cache Oracle Instant Client
-        uses: actions/cache@v4
+        uses: actions/cache/save@v4
         with:
           path: |
             /opt/oracle/instantclient_21_9
@@ -111,7 +112,7 @@ jobs:
           EOF
 
       - name: Run unit tests
-        run: go test -v -coverprofile=coverage.unit.txt ./pkg/... ./internal/...
+        run: go test -v -coverprofile=coverage.unit.txt ./cmd/... ./pkg/... ./internal/...
 
       - name: Run integration tests
         run: |
