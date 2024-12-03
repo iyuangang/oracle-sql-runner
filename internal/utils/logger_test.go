@@ -65,10 +65,9 @@ func TestNewLogger(t *testing.T) {
 						return err
 					}
 				} else {
-					// Windows 系统：创建一个特殊的系统设备文件路径
-					// 使用 CON、PRN、AUX、NUL 等系统保留名称
-					t.Setenv("TEST_LOG_FILE", filepath.Join(dir, "CON"))
-					return nil
+					// Windows 系统：使用系统保留设备文件名
+					// 例如 CON, PRN, AUX, NUL 等
+					t.Setenv("TEST_LOG_FILE", filepath.Join(dir, "NUL"))
 				}
 				return nil
 			},
@@ -222,6 +221,19 @@ func TestLogger_LogLevels(t *testing.T) {
 }
 
 func TestLogger_Fatal(t *testing.T) {
+	// 保存原始 osExit 函数
+	originalOsExit := osExit
+	defer func() { osExit = originalOsExit }()
+
+	exitCalled := false
+	exitCode := 0
+
+	// 模拟 osExit
+	osExit = func(code int) {
+		exitCalled = true
+		exitCode = code
+	}
+
 	// 创建临时目录和日志文件
 	tmpDir := t.TempDir()
 	logFile := filepath.Join(tmpDir, "test.log")
@@ -231,21 +243,12 @@ func TestLogger_Fatal(t *testing.T) {
 	require.NoError(t, err)
 	defer logger.Close()
 
-	// 创建一个测试用的 exit 函数
-	originalOsExit := osExit
-	defer func() { osExit = originalOsExit }()
-
-	exitCalled := false
-	osExit = func(code int) {
-		exitCalled = true
-		assert.Equal(t, 1, code)
-	}
-
 	// 调用 Fatal
 	logger.Fatal("fatal error", "key", "value")
 
 	// 验证 exit 被调用
-	assert.True(t, exitCalled)
+	assert.True(t, exitCalled, "osExit 应该被调用")
+	assert.Equal(t, 1, exitCode, "退出码应为 1")
 
 	// 等待日志写入
 	time.Sleep(100 * time.Millisecond)
@@ -263,9 +266,6 @@ func TestLogger_Fatal(t *testing.T) {
 	args := entry["args"].(map[string]interface{})
 	assert.Equal(t, "value", args["key"])
 }
-
-// 用于测试的 exit 函数
-var osExit = os.Exit
 
 func TestGetCallerInfo(t *testing.T) {
 	source := getCallerInfo(1)

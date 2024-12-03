@@ -107,7 +107,8 @@ jobs:
             "max_concurrent": 1,
             "batch_size": 1000,
             "timeout": 30,
-            "log_level": "debug"
+            "log_level": "debug",
+            "log_file": "logs/sql-runner.log"
           }
           EOF
 

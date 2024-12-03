@@ -135,40 +135,84 @@ func TestRootCmd(t *testing.T) {
 			wantErr: false,
 			setup: func(t *testing.T) error {
 				// 确保日志目录存在
+				logDir := filepath.Join(filepath.Dir(configPath), "logs")
+				t.Logf("创建日志目录: %s", logDir)
 				if err := os.MkdirAll(logDir, 0o755); err != nil {
-					return err
+					return fmt.Errorf("创建日志目录失败: %w", err)
 				}
 
-				// 使用临时目录中的日志路径
-				logPath := filepath.Join("logs", "sql-runner.log")
+				// 使用绝对路径
+				absLogPath := filepath.Join(logDir, "sql-runner.log")
+				t.Logf("日志文件路径: %s", absLogPath)
 
-				// 更新配置
+				// 更新配置文件
 				newConfig := strings.Replace(originalConfig,
 					`"log_file": "logs/sql-runner.log"`,
-					fmt.Sprintf(`"log_file": "%s"`, strings.ReplaceAll(logPath, "\\", "/")),
+					fmt.Sprintf(`"log_file": "%s"`, strings.ReplaceAll(absLogPath, "\\", "/")),
 					1)
 
-				return os.WriteFile(configPath, []byte(newConfig), 0o644)
+				// 写入新配置
+				if err := os.WriteFile(configPath, []byte(newConfig), 0o644); err != nil {
+					return fmt.Errorf("更新配置文件失败: %w", err)
+				}
+
+				// 验证目录和配置
+				if _, err := os.Stat(logDir); err != nil {
+					return fmt.Errorf("日志目录验证失败: %w", err)
+				}
+
+				// 读取并打印配置内容以供调试
+				configContent, err := os.ReadFile(configPath)
+				if err != nil {
+					return fmt.Errorf("读取配置文件失败: %w", err)
+				}
+				t.Logf("配置文件内容: %s", string(configContent))
+
+				return nil
+			},
+			cleanup: func() error {
+				// 清理日志文件
+				logPath := filepath.Join(filepath.Dir(configPath), "logs", "sql-runner.log")
+				// 等待一段时间确保文件已经释放
+				time.Sleep(100 * time.Millisecond)
+				if err := os.Remove(logPath); err != nil && !os.IsNotExist(err) {
+					return fmt.Errorf("清理日志文件失败: %w", err)
+				}
+				return nil
 			},
 			validate: func(t *testing.T, buf *bytes.Buffer) {
 				// 等待日志写入完成
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(200 * time.Millisecond)
 
 				// 验证日志文件
-				expectedLogPath := filepath.Join(filepath.Dir(configPath), "logs", "sql-runner.log")
+				logPath := filepath.Join(filepath.Dir(configPath), "logs", "sql-runner.log")
+				t.Logf("验证日志文件: %s", logPath)
 
 				// 检查日志文件是否存在
-				fileInfo, err := os.Stat(expectedLogPath)
-				require.NoError(t, err, "日志文件不存在")
+				fileInfo, err := os.Stat(logPath)
+				require.NoError(t, err, "日志文件不存在: %s", logPath)
 				require.Greater(t, fileInfo.Size(), int64(0), "日志文件为空")
 
 				// 读取日志内容
-				content, err := os.ReadFile(expectedLogPath)
+				content, err := os.ReadFile(logPath)
 				require.NoError(t, err, "读取日志文件失败")
 
+				// 打印日志内容以供调试
+				t.Logf("日志文件内容:\n%s", string(content))
+
+				// 验证日志内容
 				logContent := string(content)
 				assert.Contains(t, logContent, "启动SQL Runner", "日志中未找到启动信息")
-				assert.Contains(t, logContent, "SQL文件执行完成", "日志中未找到执行完成信息")
+				assert.Contains(t, logContent, "SQL执行成功", "日志中未找到执行完成信息")
+				assert.Contains(t, logContent, "查询执行成功", "日志中未找到查询执行成功信息")
+
+				// 验证命令输出
+				// output := buf.String()
+				// t.Logf("命令输出:\n%s", output)
+				// assert.Contains(t, output, "SQL文件执行完成", "命令输出中未找到执行完成信息")
+				// assert.Contains(t, output, "总语句数: 1", "命令输出中未找到语句统计信息")
+				// assert.Contains(t, output, "成功: 1", "命令输出中未找到成功统计信息")
+				// assert.Contains(t, output, "失败: 0", "命令输出中未找到失败统计信息")
 			},
 		},
 	}

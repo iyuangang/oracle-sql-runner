@@ -13,6 +13,9 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// 用于调用 os.Exit 的变量，默认指向 os.Exit 函数
+var osExit = os.Exit
+
 // LogLevel 日志级别
 type LogLevel int
 
@@ -184,7 +187,7 @@ func (l *Logger) Error(msg string, args ...any) {
 
 func (l *Logger) Fatal(msg string, args ...any) {
 	l.log(LogLevelError, msg, args...)
-	os.Exit(1)
+	osExit(1)
 }
 
 // Close 关闭日志文件
