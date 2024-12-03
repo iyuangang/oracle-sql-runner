@@ -18,7 +18,7 @@ func TestNewErrorResult(t *testing.T) {
 		t.Errorf("Expected 1 error, got %d", len(result.Errors))
 	}
 
-	if result.Errors[0] != err {
+	if result.Errors[0].Message != err.Error() {
 		t.Errorf("Expected error to be %v, got %v", err, result.Errors[0])
 	}
 }

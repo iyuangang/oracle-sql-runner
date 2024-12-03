@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -243,25 +244,29 @@ func TestExecuteTask(t *testing.T) {
 	})
 }
 
-func TestParallelExecution(t *testing.T) {
+func TestParallelExecutionConcurrencySafety(t *testing.T) {
 	cfg, logger := setupTestEnv(t)
-	cfg.MaxConcurrent = 3 // 设置并发数
+	cfg.MaxConcurrent = 10 // 设置较大的并发数
 	executor, err := NewExecutor(cfg, "test", logger)
 	require.NoError(t, err)
 	defer executor.Close()
 
-	// 创建多个测试任务
-	tasks := []models.SQLTask{
-		{SQL: "SELECT 1 FROM DUAL", Type: models.SQLTypeQuery, LineNum: 1},
-		{SQL: "SELECT 2 FROM DUAL", Type: models.SQLTypeQuery, LineNum: 2},
-		{SQL: "SELECT 3 FROM DUAL", Type: models.SQLTypeQuery, LineNum: 3},
-		{SQL: "SELECT 4 FROM DUAL", Type: models.SQLTypeQuery, LineNum: 4},
-		{SQL: "SELECT 5 FROM DUAL", Type: models.SQLTypeQuery, LineNum: 5},
+	// 创建大量测试任务
+	var tasks []models.SQLTask
+	for i := 0; i < 100; i++ {
+		tasks = append(tasks, models.SQLTask{
+			SQL:     fmt.Sprintf("SELECT %d FROM DUAL", i),
+			Type:    models.SQLTypeQuery,
+			LineNum: i + 1,
+		})
 	}
 
-	result := executor.executeParallel(tasks)
-	assert.Equal(t, len(tasks), result.Success)
-	assert.Equal(t, 0, result.Failed)
+	// 多次执行并发测试
+	for i := 0; i < 5; i++ {
+		result := executor.executeParallel(tasks)
+		assert.Equal(t, len(tasks), result.Success)
+		assert.Equal(t, 0, result.Failed)
+	}
 }
 
 func TestPrintQueryResults(t *testing.T) {

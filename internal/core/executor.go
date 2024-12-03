@@ -73,6 +73,7 @@ func (e *Executor) executeParallel(tasks []models.SQLTask) *models.Result {
 	result := models.NewResult()
 	sem := make(chan struct{}, e.config.MaxConcurrent)
 	var wg sync.WaitGroup
+	var mu sync.Mutex // 添加互斥锁保护结果对象
 
 	for _, task := range tasks {
 		wg.Add(1)
@@ -88,6 +89,9 @@ func (e *Executor) executeParallel(tasks []models.SQLTask) *models.Result {
 			start := time.Now()
 			err := e.executeTask(ctx, t)
 			duration := time.Since(start)
+
+			mu.Lock() // 加锁保护结果对象的修改
+			defer mu.Unlock()
 
 			if err != nil {
 				e.logger.Error("SQL执行失败",

@@ -2,6 +2,7 @@ package models
 
 import (
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -22,14 +23,15 @@ type SQLTask struct {
 	Filename string
 }
 
-// Result 表示执行结果
+// Result SQL执行结果
 type Result struct {
+	mu        sync.Mutex // 添加互斥锁
 	Success   int
 	Failed    int
-	Errors    []error
+	Errors    []SQLError
+	Duration  time.Duration
 	StartTime time.Time
 	EndTime   time.Time
-	Duration  time.Duration
 }
 
 // NewResult 创建新的结果对象
@@ -39,14 +41,23 @@ func NewResult() *Result {
 	}
 }
 
-// AddError 添加错误
+// AddError 添加错误信息
 func (r *Result) AddError(task SQLTask, err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.Failed++
-	r.Errors = append(r.Errors, fmt.Errorf("文件 %s 第 %d 行: %v", task.Filename, task.LineNum, err))
+	r.Errors = append(r.Errors, SQLError{
+		SQL:     task.SQL,
+		Message: err.Error(),
+		Line:    task.LineNum,
+		File:    task.Filename,
+	})
 }
 
-// AddSuccess 添加成功
+// AddSuccess 添加成功计数
 func (r *Result) AddSuccess() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.Success++
 }
 
@@ -66,7 +77,7 @@ func (r *Result) Print() {
 	if r.Failed > 0 {
 		fmt.Printf("\n错误详情:\n")
 		for i, err := range r.Errors {
-			fmt.Printf("%d. %s\n", i+1, err)
+			fmt.Printf("%d. %s\n", i+1, err.Error())
 		}
 	}
 }

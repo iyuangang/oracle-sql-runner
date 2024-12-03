@@ -1,6 +1,8 @@
 package models
 
-import "fmt"
+import (
+	"fmt"
+)
 
 // SQLError 自定义SQL错误
 type SQLError struct {
@@ -13,7 +15,7 @@ type SQLError struct {
 func NewErrorResult(err error) *Result {
 	return &Result{
 		Success: 0,
-		Errors:  []error{err},
+		Errors:  []SQLError{*NewSQLError(err.Error(), err.Error(), 0, "")},
 	}
 }
 

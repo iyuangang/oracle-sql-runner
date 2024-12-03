@@ -117,9 +117,10 @@ func TestRootCmd(t *testing.T) {
 				}
 
 				// 更新配置文件
+				// windows 系统下，将日志目录后缀设置为 ":" 以触发错误
 				newConfig := strings.Replace(originalConfig,
 					`"log_file": "logs/sql-runner.log"`,
-					fmt.Sprintf(`"log_file": "%s"`, strings.ReplaceAll(absLogPath, "\\", "/")),
+					fmt.Sprintf(`"log_file": "%s"`, strings.ReplaceAll(absLogPath, "\\", "/")+":"),
 					1)
 
 				return os.WriteFile(configPath, []byte(newConfig), 0o644)
