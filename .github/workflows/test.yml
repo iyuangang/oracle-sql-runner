@@ -76,6 +76,8 @@ jobs:
             )
           )" | sudo tee /opt/oracle/instantclient_21_9/network/admin/tnsnames.ora
           
+      - name: Configure Oracle Instant Client (Linux)
+        run: |
           echo "/opt/oracle/instantclient_21_9" | sudo tee /etc/ld.so.conf.d/oracle-instantclient.conf
           sudo ldconfig
           
@@ -195,7 +197,10 @@ jobs:
               (SERVICE_NAME = FREEPDB1)
             )
           )" | sudo tee /opt/oracle/instantclient_21_9/network/admin/tnsnames.ora
-          
+
+      - name: Configure Oracle Instant Client (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
           echo "/opt/oracle/instantclient_21_9" | sudo tee /etc/ld.so.conf.d/oracle-instantclient.conf
           sudo ldconfig
           
