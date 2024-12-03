@@ -23,6 +23,23 @@ jobs:
   # 快速测试作业，仅在 Linux 上运行单元测试
   quick-test:
     runs-on: ubuntu-latest
+
+    services:
+      oracle:
+        # Oracle 服务仅在 Linux 环境下运行
+        image: gvenzl/oracle-xe:21-slim
+        env:
+          ORACLE_PASSWORD: oracle
+          APP_USER: test
+          APP_USER_PASSWORD: test123
+        ports:
+          - 1521:1521
+        options: >-
+          --health-cmd healthcheck.sh
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
       
@@ -31,6 +48,71 @@ jobs:
         with:
           go-version: '1.22'
           cache: true
+
+      - name: Restore Oracle Instant Client (Linux)
+        id: cache-oracle-linux
+        uses: actions/cache/restore@v4
+        with:
+          path: /opt/oracle/instantclient_21_9
+          key: ubuntu-22.04-oracle-instantclient-${{ hashFiles('**/go.sum') }}
+          restore-keys: ubuntu-22.04-oracle-instantclient-
+      
+      - name: Install Oracle Instant Client (Linux)
+        if: steps.cache-oracle-linux.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libaio1
+          
+          wget https://download.oracle.com/otn_software/linux/instantclient/219000/instantclient-basic-linux.x64-21.9.0.0.0dbru.zip
+          sudo mkdir -p /opt/oracle
+          sudo unzip instantclient-basic-linux.x64-21.9.0.0.0dbru.zip -d /opt/oracle
+          sudo mkdir -p /opt/oracle/instantclient_21_9/network/admin
+          echo "XE =
+            (DESCRIPTION =
+            (ADDRESS = (PROTOCOL = TCP)(HOST = localhost)(PORT = 1521))
+            (CONNECT_DATA =
+              (SERVER = DEDICATED)
+              (SERVICE_NAME = FREEPDB1)
+            )
+          )" | sudo tee /opt/oracle/instantclient_21_9/network/admin/tnsnames.ora
+          
+          echo "/opt/oracle/instantclient_21_9" | sudo tee /etc/ld.so.conf.d/oracle-instantclient.conf
+          sudo ldconfig
+          
+          echo "LD_LIBRARY_PATH=/opt/oracle/instantclient_21_9:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          echo "PATH=/opt/oracle/instantclient_21_9:$PATH" >> $GITHUB_ENV
+      
+      - name: Cache Oracle Instant Client (Linux)
+        uses: actions/cache/save@v4
+        with:
+          path: /opt/oracle/instantclient_21_9
+          key: ubuntu-22.04-oracle-instantclient-${{ hashFiles('**/go.sum') }}
+          restore-keys: ubuntu-22.04-oracle-instantclient-
+
+
+      - name: Create test config
+        shell: bash
+        run: |
+          cat > config.json << EOF
+          {
+            "databases": {
+              "test": {
+                "name": "测试库",
+                "user": "system",
+                "password": "oracle",
+                "host": "localhost",
+                "port": 1521,
+                "service": "FREEPDB1"
+              }
+            },
+            "max_retries": 3,
+            "max_concurrent": 1,
+            "batch_size": 1000,
+            "timeout": 30,
+            "log_level": "debug",
+            "log_file": "logs/sql-runner.log"
+          }
+          EOF
       
       - name: Run unit tests
         run: go test -v -race -coverprofile=coverage.unit.txt ./cmd/... ./pkg/... ./internal/...
