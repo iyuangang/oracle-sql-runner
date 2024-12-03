@@ -14,12 +14,55 @@ on:
       - 'docs/**'
       - 'LICENSE'
 
+# 并发控制
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-test
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
-  test:
+  # 快速测试作业，仅在 Linux 上运行单元测试
+  quick-test:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.22'
+          cache: true
+      
+      - name: Run unit tests
+        run: go test -v -race -coverprofile=coverage.unit.txt ./cmd/... ./pkg/... ./internal/...
+      
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          file: ./coverage.unit.txt
+          flags: unit-tests
+
+  # 完整测试作业，包括多平台和多 Go 版本
+  test:
+    needs: quick-test
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ['1.21', '1.22', '1.23']
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        # 排除某些组合以节省资源
+        exclude:
+          # Windows 和 macOS 只测试最新的 Go 版本
+          - os: windows-latest
+            go-version: '1.21'
+          - os: macos-latest
+            go-version: '1.21'
+    
+    runs-on: ${{ matrix.os }}
     
     services:
       oracle:
+        # Oracle 服务仅在 Linux 环境下运行
         image: gvenzl/oracle-xe:21-slim
         env:
           ORACLE_PASSWORD: oracle
@@ -39,57 +82,78 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.22'
+          go-version: ${{ matrix.go-version }}
           cache: true
 
-      - name: Restore Oracle Instant Client
-        id: cache-primes
+      # Linux 特定步骤
+      - name: Restore Oracle Instant Client (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        id: cache-oracle-linux
         uses: actions/cache/restore@v4
         with:
-          path: |
-            /opt/oracle/instantclient_21_9
+          path: /opt/oracle/instantclient_21_9
           key: ubuntu-22.04-oracle-instantclient-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ubuntu-22.04-oracle-instantclient-
+          restore-keys: ubuntu-22.04-oracle-instantclient-
       
-      - name: Install Oracle Instant Client
+      - name: Install Oracle Instant Client (Linux)
+        if: matrix.os == 'ubuntu-latest' && steps.cache-oracle-linux.outputs.cache-hit != 'true'
         run: |
-          # 安装依赖
           sudo apt-get update
           sudo apt-get install -y libaio1
           
-          if [ ! -d /opt/oracle/instantclient_21_9 ]; then
-            wget https://download.oracle.com/otn_software/linux/instantclient/219000/instantclient-basic-linux.x64-21.9.0.0.0dbru.zip
-            sudo mkdir -p /opt/oracle
-            sudo unzip instantclient-basic-linux.x64-21.9.0.0.0dbru.zip -d /opt/oracle
-            sudo mkdir -p /opt/oracle/instantclient_21_9/network/admin
-            echo "XE =
-              (DESCRIPTION =
-              (ADDRESS = (PROTOCOL = TCP)(HOST = localhost)(PORT = 1521))
-              (CONNECT_DATA =
-                (SERVER = DEDICATED)
-                (SERVICE_NAME = FREEPDB1)
-              )
-            )" | sudo tee /opt/oracle/instantclient_21_9/network/admin/tnsnames.ora
-          fi
+          wget https://download.oracle.com/otn_software/linux/instantclient/219000/instantclient-basic-linux.x64-21.9.0.0.0dbru.zip
+          sudo mkdir -p /opt/oracle
+          sudo unzip instantclient-basic-linux.x64-21.9.0.0.0dbru.zip -d /opt/oracle
+          sudo mkdir -p /opt/oracle/instantclient_21_9/network/admin
+          echo "XE =
+            (DESCRIPTION =
+            (ADDRESS = (PROTOCOL = TCP)(HOST = localhost)(PORT = 1521))
+            (CONNECT_DATA =
+              (SERVER = DEDICATED)
+              (SERVICE_NAME = FREEPDB1)
+            )
+          )" | sudo tee /opt/oracle/instantclient_21_9/network/admin/tnsnames.ora
           
-          # 配置环境变量
           echo "/opt/oracle/instantclient_21_9" | sudo tee /etc/ld.so.conf.d/oracle-instantclient.conf
           sudo ldconfig
           
-          echo "export LD_LIBRARY_PATH=/opt/oracle/instantclient_21_9:$LD_LIBRARY_PATH" >> $GITHUB_ENV
-          echo "export PATH=/opt/oracle/instantclient_21_9:$PATH" >> $GITHUB_ENV
-          
-      - name: Cache Oracle Instant Client
+          echo "LD_LIBRARY_PATH=/opt/oracle/instantclient_21_9:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          echo "PATH=/opt/oracle/instantclient_21_9:$PATH" >> $GITHUB_ENV
+      
+      - name: Cache Oracle Instant Client (Linux)
+        if: matrix.os == 'ubuntu-latest'
         uses: actions/cache/save@v4
         with:
-          path: |
-            /opt/oracle/instantclient_21_9
+          path: /opt/oracle/instantclient_21_9
           key: ubuntu-22.04-oracle-instantclient-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ubuntu-22.04-oracle-instantclient-
+          restore-keys: ubuntu-22.04-oracle-instantclient-
+
+      # Windows 特定步骤
+      - name: Install Oracle Instant Client (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $InstantClientVersion = "21.9.0.0.0"
+          $InstantClientURL = "https://download.oracle.com/otn_software/nt/instantclient/219000/instantclient-basic-windows.x64-21.9.0.0.0dbru.zip"
+          
+          # 下载并解压 Oracle Instant Client
+          Invoke-WebRequest -Uri $InstantClientURL -OutFile instantclient.zip
+          Expand-Archive instantclient.zip -DestinationPath C:\oracle
+          
+          # 设置环境变量
+          echo "C:\oracle\instantclient_21_9" | Out-File -FilePath $env:GITHUB_PATH -Append
+          echo "PATH=C:\oracle\instantclient_21_9;$env:PATH" >> $env:GITHUB_ENV
+
+      # macOS 特定步骤
+      - name: Install Oracle Instant Client (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install instantclient-basic
+          echo "DYLD_LIBRARY_PATH=$(brew --prefix instantclient-basic)/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
+          echo "PATH=$(brew --prefix instantclient-basic)/bin:$PATH" >> $GITHUB_ENV
 
       - name: Create test config
+        shell: bash
         run: |
           cat > config.json << EOF
           {
@@ -112,28 +176,58 @@ jobs:
           }
           EOF
 
+      # 运行测试
       - name: Run unit tests
-        run: go test -v -coverprofile=coverage.unit.txt ./cmd/... ./pkg/... ./internal/...
+        run: go test -v -race -coverprofile=coverage.unit.txt ./cmd/... ./pkg/... ./internal/...
 
+      # 仅在 Linux 环境下运行集成测试
       - name: Run integration tests
+        if: matrix.os == 'ubuntu-latest'
         run: |
           source $GITHUB_ENV
-          go test -v -coverprofile=coverage.integration.txt ./test/integration/...
+          go test -v -race -coverprofile=coverage.integration.txt ./test/integration/...
 
+      # 仅在 Linux 环境下运行全量测试
       - name: Run full tests
+        if: matrix.os == 'ubuntu-latest'
         run: |
           source $GITHUB_ENV
-          go test -v -coverprofile=coverage.full.txt ./...
+          go test -v -race -coverprofile=coverage.full.txt ./...
 
+      # 合并覆盖率报告（仅 Linux）
       - name: Combine coverage reports
+        if: matrix.os == 'ubuntu-latest'
         run: |
           echo "mode: atomic" > coverage.txt
           tail -n +2 coverage.unit.txt >> coverage.txt
-          tail -n +2 coverage.integration.txt >> coverage.txt
-          tail -n +2 coverage.full.txt >> coverage.txt
+          if [ -f coverage.integration.txt ]; then
+            tail -n +2 coverage.integration.txt >> coverage.txt
+          fi
+          if [ -f coverage.full.txt ]; then
+            tail -n +2 coverage.full.txt >> coverage.txt
+          fi
 
+      # 上传覆盖率报告（仅 Linux）
       - name: Upload test coverage
+        if: matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           file: ./coverage.txt
+          flags: ${{ matrix.os }}-go${{ matrix.go-version }}
+
+  # 测试结果汇总
+  test-results:
+    if: always()
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check test results
+        run: |
+          if [ "${{ needs.test.result }}" = "success" ]; then
+            echo "All tests passed successfully!"
+            exit 0
+          else
+            echo "Some tests failed!"
+            exit 1
+          fi
