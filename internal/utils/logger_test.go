@@ -2,10 +2,12 @@ package utils
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -67,7 +69,7 @@ func TestNewLogger(t *testing.T) {
 				} else {
 					// Windows 系统：使用系统保留设备文件名
 					// 例如 CON, PRN, AUX, NUL 等
-					t.Setenv("TEST_LOG_FILE", filepath.Join(dir, "NUL"))
+					t.Setenv("TEST_LOG_FILE", filepath.Join(dir, ":"))
 				}
 				return nil
 			},
@@ -295,4 +297,154 @@ func TestGetZapLevel(t *testing.T) {
 			assert.Equal(t, tt.want, level.CapitalString())
 		})
 	}
+}
+
+func TestLogger_Close(t *testing.T) {
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "test.log")
+
+	logger, err := NewLogger(logFile, "info", true)
+	require.NoError(t, err)
+	require.NotNil(t, logger)
+
+	// 第一次关闭
+	err = logger.Close()
+	assert.NoError(t, err)
+
+	// 第二次关闭，应该无错误
+	err = logger.Close()
+	assert.NoError(t, err)
+
+	// 模拟关闭时出现错误
+	// 替换 logger.file 为一个只读文件
+	logger.file = &mockWriteCloser{readOnly: true}
+	err = logger.Close()
+	assert.Error(t, err)
+}
+
+// mockWriteCloser 模拟只能读的 WriteCloser
+type mockWriteCloser struct {
+	readOnly bool
+}
+
+func (m *mockWriteCloser) Write(p []byte) (n int, err error) {
+	if m.readOnly {
+		return 0, fmt.Errorf("read-only file")
+	}
+	return len(p), nil
+}
+
+func (m *mockWriteCloser) Close() error {
+	if m.readOnly {
+		return fmt.Errorf("read-only file cannot be closed")
+	}
+	return nil
+}
+
+func TestLogger_ConcurrentLogging(t *testing.T) {
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "test.log")
+
+	logger, err := NewLogger(logFile, "debug", true)
+	require.NoError(t, err)
+	defer logger.Close()
+
+	var wg sync.WaitGroup
+	numGoroutines := 100
+	numMessages := 100
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < numMessages; j++ {
+				logger.Info(fmt.Sprintf("Goroutine %d message %d", id, j))
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// 等待日志写入完成
+	time.Sleep(200 * time.Millisecond)
+
+	// 读取日志文件
+	content, err := os.ReadFile(logFile)
+	require.NoError(t, err)
+
+	lines := strings.Split(strings.TrimSpace(string(content)), "\n")
+	expectedLines := numGoroutines * numMessages
+	assert.Equal(t, expectedLines, len(lines), "日志行数不符")
+}
+
+func TestLogger_EncoderFormats(t *testing.T) {
+	tmpDir := t.TempDir()
+	logFileJSON := filepath.Join(tmpDir, "json.log")
+	logFileConsole := filepath.Join(tmpDir, "console.log")
+
+	// 测试 JSON 编码器
+	loggerJSON, err := NewLogger(logFileJSON, "info", true)
+	require.NoError(t, err)
+	defer loggerJSON.Close()
+
+	loggerJSON.Info("JSON format log", "key", "value")
+
+	contentJSON, err := os.ReadFile(logFileJSON)
+	require.NoError(t, err)
+
+	var entryJSON map[string]interface{}
+	err = json.Unmarshal(contentJSON, &entryJSON)
+	require.NoError(t, err)
+	assert.Equal(t, "INFO", entryJSON["level"])
+	assert.Equal(t, "JSON format log", entryJSON["msg"])
+	assert.Equal(t, "value", entryJSON["args"].(map[string]interface{})["key"])
+
+	// 测试 Console 编码器
+	loggerConsole, err := NewLogger(logFileConsole, "info", false)
+	require.NoError(t, err)
+	defer loggerConsole.Close()
+
+	loggerConsole.Info("Console format log", "key", "value")
+
+	contentConsole, err := os.ReadFile(logFileConsole)
+	require.NoError(t, err)
+
+	// 简单检查日志内容包含预期字符串
+	logStr := string(contentConsole)
+	assert.Contains(t, logStr, "INFO")
+	assert.Contains(t, logStr, "Console format log")
+	assert.Contains(t, logStr, "\"key\":\"value\"")
+}
+
+func TestLogger_TimeAndLevel(t *testing.T) {
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "test.log")
+
+	logger, err := NewLogger(logFile, "info", true)
+	require.NoError(t, err)
+	defer logger.Close()
+
+	currentTime := time.Now()
+	logger.Info("Test time and level")
+
+	// 等待日志写入
+	time.Sleep(100 * time.Millisecond)
+
+	// 读取日志内容
+	content, err := os.ReadFile(logFile)
+	require.NoError(t, err)
+
+	var entry map[string]interface{}
+	err = json.Unmarshal(content, &entry)
+	require.NoError(t, err)
+
+	// 验证时间戳
+	logTimeStr, ok := entry["time"].(string)
+	require.True(t, ok, "日志中缺少time字段")
+	logTime, err := time.Parse(time.RFC3339, logTimeStr)
+	require.NoError(t, err)
+	assert.WithinDuration(t, currentTime, logTime, time.Second, "日志时间戳不在预期范围内")
+
+	// 验证日志级别
+	assert.Equal(t, "INFO", entry["level"])
 }
