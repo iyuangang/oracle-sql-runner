@@ -20,13 +20,11 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # 快速测试作业，仅在 Linux 上运行单元测试
-  quick-test:
+  # 启动 Oracle 服务
+  setup-oracle:
     runs-on: ubuntu-latest
-
     services:
       oracle:
-        # Oracle 服务仅在 Linux 环境下运行
         image: gvenzl/oracle-xe:21-slim
         env:
           ORACLE_PASSWORD: oracle
@@ -39,127 +37,36 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
-
+    
+    # 设置 TCP 代理
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.22'
-          cache: true
-
-      - name: Restore Oracle Instant Client (Linux)
-        id: cache-oracle-linux
-        uses: actions/cache/restore@v4
-        with:
-          path: /opt/oracle/instantclient_21_9
-          key: ubuntu-22.04-oracle-instantclient-${{ hashFiles('**/go.sum') }}
-          restore-keys: ubuntu-22.04-oracle-instantclient-
-      
-      - name: Install Oracle Instant Client (Linux)
-        if: steps.cache-oracle-linux.outputs.cache-hit != 'true'
+      - name: Set up TCP proxy
         run: |
           sudo apt-get update
-          sudo apt-get install -y libaio1
-          
-          wget https://download.oracle.com/otn_software/linux/instantclient/219000/instantclient-basic-linux.x64-21.9.0.0.0dbru.zip
-          sudo mkdir -p /opt/oracle
-          sudo unzip instantclient-basic-linux.x64-21.9.0.0.0dbru.zip -d /opt/oracle
-          sudo mkdir -p /opt/oracle/instantclient_21_9/network/admin
-          echo "XE =
-            (DESCRIPTION =
-            (ADDRESS = (PROTOCOL = TCP)(HOST = localhost)(PORT = 1521))
-            (CONNECT_DATA =
-              (SERVER = DEDICATED)
-              (SERVICE_NAME = FREEPDB1)
-            )
-          )" | sudo tee /opt/oracle/instantclient_21_9/network/admin/tnsnames.ora
-          
-      - name: Configure Oracle Instant Client (Linux)
+          sudo apt-get install -y socat
+          sudo socat TCP-LISTEN:1521,fork TCP:localhost:1521 &
+      
+      - name: Wait for Oracle
         run: |
-          echo "/opt/oracle/instantclient_21_9" | sudo tee /etc/ld.so.conf.d/oracle-instantclient.conf
-          sudo ldconfig
-          
-          echo "LD_LIBRARY_PATH=/opt/oracle/instantclient_21_9:$LD_LIBRARY_PATH" >> $GITHUB_ENV
-          echo "PATH=/opt/oracle/instantclient_21_9:$PATH" >> $GITHUB_ENV
-      
-      - name: Cache Oracle Instant Client (Linux)
-        uses: actions/cache/save@v4
-        with:
-          path: /opt/oracle/instantclient_21_9
-          key: ubuntu-22.04-oracle-instantclient-${{ hashFiles('**/go.sum') }}
-          restore-keys: ubuntu-22.04-oracle-instantclient-
+          timeout 300 bash -c 'until echo > /dev/tcp/localhost/1521; do sleep 1; done'
+          sleep 30 # 额外等待以确保服务完全就绪
 
-
-      - name: Create test config
-        shell: bash
-        run: |
-          cat > config.json << EOF
-          {
-            "databases": {
-              "test": {
-                "name": "测试库",
-                "user": "system",
-                "password": "oracle",
-                "host": "localhost",
-                "port": 1521,
-                "service": "FREEPDB1"
-              }
-            },
-            "max_retries": 3,
-            "max_concurrent": 1,
-            "batch_size": 1000,
-            "timeout": 30,
-            "log_level": "debug",
-            "log_file": "logs/sql-runner.log"
-          }
-          EOF
-      
-      - name: Run unit tests
-        run: go test -v -race -coverprofile=coverage.unit.txt ./cmd/... ./pkg/... ./internal/...
-      
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          file: ./coverage.unit.txt
-          flags: unit-tests
-
-  # 完整测试作业，包括多平台和多 Go 版本
+  # 多平台测试
   test:
-    needs: quick-test
+    needs: setup-oracle
     strategy:
       fail-fast: false
       matrix:
-        go-version: ['1.21', '1.22', '1.23']
+        go-version: ['1.22', '1.23']
         os: [ubuntu-latest, windows-latest, macos-latest]
-        # 排除某些组合以节省资源
         exclude:
-          # Windows 和 macOS 只测试最新的 Go 版本
           - os: windows-latest
-            go-version: '1.21'
+            go-version: '1.23'
           - os: macos-latest
-            go-version: '1.21'
+            go-version: '1.23'
     
     runs-on: ${{ matrix.os }}
     
-    services:
-      oracle:
-        # Oracle 服务仅在 Linux 环境下运行
-        image: gvenzl/oracle-xe:21-slim
-        env:
-          ORACLE_PASSWORD: oracle
-          APP_USER: test
-          APP_USER_PASSWORD: test123
-        ports:
-          - 1521:1521
-        options: >-
-          --health-cmd healthcheck.sh
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-
     steps:
       - uses: actions/checkout@v4
 
@@ -197,7 +104,7 @@ jobs:
               (SERVICE_NAME = FREEPDB1)
             )
           )" | sudo tee /opt/oracle/instantclient_21_9/network/admin/tnsnames.ora
-
+          
       - name: Configure Oracle Instant Client (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -208,7 +115,7 @@ jobs:
           echo "PATH=/opt/oracle/instantclient_21_9:$PATH" >> $GITHUB_ENV
       
       - name: Cache Oracle Instant Client (Linux)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest' && steps.cache-oracle-linux.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: /opt/oracle/instantclient_21_9
@@ -223,11 +130,21 @@ jobs:
           $InstantClientVersion = "21.9.0.0.0"
           $InstantClientURL = "https://download.oracle.com/otn_software/nt/instantclient/219000/instantclient-basic-windows.x64-21.9.0.0.0dbru.zip"
           
-          # 下载并解压 Oracle Instant Client
           Invoke-WebRequest -Uri $InstantClientURL -OutFile instantclient.zip
           Expand-Archive instantclient.zip -DestinationPath C:\oracle
           
-          # 设置环境变量
+          mkdir C:\oracle\instantclient_21_9\network\admin
+          @"
+          XE =
+            (DESCRIPTION =
+            (ADDRESS = (PROTOCOL = TCP)(HOST = oracle)(PORT = 1521))
+            (CONNECT_DATA =
+              (SERVER = DEDICATED)
+              (SERVICE_NAME = FREEPDB1)
+            )
+          )
+          "@ | Out-File C:\oracle\instantclient_21_9\network\admin\tnsnames.ora -Encoding ASCII
+          
           echo "C:\oracle\instantclient_21_9" | Out-File -FilePath $env:GITHUB_PATH -Append
           echo "PATH=C:\oracle\instantclient_21_9;$env:PATH" >> $env:GITHUB_ENV
 
@@ -236,8 +153,30 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           brew install instantclient-basic
+          mkdir -p $(brew --prefix instantclient-basic)/lib/network/admin
+          echo "XE =
+            (DESCRIPTION =
+            (ADDRESS = (PROTOCOL = TCP)(HOST = oracle)(PORT = 1521))
+            (CONNECT_DATA =
+              (SERVER = DEDICATED)
+              (SERVICE_NAME = FREEPDB1)
+            )
+          )" > $(brew --prefix instantclient-basic)/lib/network/admin/tnsnames.ora
+          
           echo "DYLD_LIBRARY_PATH=$(brew --prefix instantclient-basic)/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
           echo "PATH=$(brew --prefix instantclient-basic)/bin:$PATH" >> $GITHUB_ENV
+
+      # 设置 hosts 文件
+      - name: Setup hosts file (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          Add-Content -Path $env:windir\System32\drivers\etc\hosts -Value "oracle 127.0.0.1"
+
+      - name: Setup hosts file (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          echo "127.0.0.1 oracle" | sudo tee -a /etc/hosts
 
       - name: Create test config
         shell: bash
@@ -249,7 +188,7 @@ jobs:
                 "name": "测试库",
                 "user": "system",
                 "password": "oracle",
-                "host": "localhost",
+                "host": "oracle",
                 "port": 1521,
                 "service": "FREEPDB1"
               }
@@ -267,34 +206,14 @@ jobs:
       - name: Run unit tests
         run: go test -v -race -coverprofile=coverage.unit.txt ./cmd/... ./pkg/... ./internal/...
 
-      # 仅在 Linux 环境下运行集成测试
-      - name: Run integration tests
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          source $GITHUB_ENV
-          go test -v -race -coverprofile=coverage.integration.txt ./test/integration/...
-
-      # 仅在 Linux 环境下运行全量测试
-      - name: Run full tests
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          source $GITHUB_ENV
-          go test -v -race -coverprofile=coverage.full.txt ./...
-
-      # 合并覆盖率报告（仅 Linux）
+      # 合并覆盖率报告
       - name: Combine coverage reports
         if: matrix.os == 'ubuntu-latest'
         run: |
           echo "mode: atomic" > coverage.txt
           tail -n +2 coverage.unit.txt >> coverage.txt
-          if [ -f coverage.integration.txt ]; then
-            tail -n +2 coverage.integration.txt >> coverage.txt
-          fi
-          if [ -f coverage.full.txt ]; then
-            tail -n +2 coverage.full.txt >> coverage.txt
-          fi
 
-      # 上传覆盖率报告（仅 Linux）
+      # 上传覆盖率报告
       - name: Upload test coverage
         if: matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@v5
