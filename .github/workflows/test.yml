@@ -83,8 +83,8 @@ jobs:
       - name: Configure Oracle Instant Client (Linux)
         run: |
           sudo apt-get update
-          sudo apt-get search libaio
           sudo apt-get install -y libaio1t64
+          ln -s /usr/lib/x86_64-linux-gnu/libaio.so.1t64 /usr/lib/x86_64-linux-gnu/libaio.so.1
           
           echo "/opt/oracle/instantclient_23_6" | sudo tee /etc/ld.so.conf.d/oracle-instantclient.conf
           sudo ldconfig
