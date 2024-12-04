@@ -20,11 +20,42 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # 启动 Oracle 服务
-  setup-oracle:
+  # 快速测试作业，仅在 Linux 上运行单元测试
+  quick-test:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.22'
+          cache: true
+      
+      - name: Run unit tests
+        run: go test -v -race -coverprofile=coverage.unit.txt ./cmd/... ./pkg/... ./internal/...
+      
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          file: ./coverage.unit.txt
+          flags: unit-tests
+
+  # 完整测试作业，包括多平台和多 Go 版本
+  test:
+    needs: quick-test
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ['1.21', '1.23']
+        os: [ubuntu-latest]
+    
+    runs-on: ${{ matrix.os }}
+    
     services:
       oracle:
+        # Oracle 服务仅在 Linux 环境下运行
         image: gvenzl/oracle-xe:21-slim
         env:
           ORACLE_PASSWORD: oracle
@@ -37,36 +68,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
-    
-    # 设置 TCP 代理
-    steps:
-      - name: Set up TCP proxy
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y socat
-          sudo socat TCP-LISTEN:1521,fork TCP:localhost:1521 &
-      
-      - name: Wait for Oracle
-        run: |
-          timeout 300 bash -c 'until echo > /dev/tcp/localhost/1521; do sleep 1; done'
-          sleep 30 # 额外等待以确保服务完全就绪
 
-  # 多平台测试
-  test:
-    needs: setup-oracle
-    strategy:
-      fail-fast: false
-      matrix:
-        go-version: ['1.22', '1.23']
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        exclude:
-          - os: windows-latest
-            go-version: '1.23'
-          - os: macos-latest
-            go-version: '1.23'
-    
-    runs-on: ${{ matrix.os }}
-    
     steps:
       - uses: actions/checkout@v4
 
@@ -106,7 +108,6 @@ jobs:
           )" | sudo tee /opt/oracle/instantclient_21_9/network/admin/tnsnames.ora
           
       - name: Configure Oracle Instant Client (Linux)
-        if: matrix.os == 'ubuntu-latest'
         run: |
           echo "/opt/oracle/instantclient_21_9" | sudo tee /etc/ld.so.conf.d/oracle-instantclient.conf
           sudo ldconfig
@@ -122,62 +123,6 @@ jobs:
           key: ubuntu-22.04-oracle-instantclient-${{ hashFiles('**/go.sum') }}
           restore-keys: ubuntu-22.04-oracle-instantclient-
 
-      # Windows 特定步骤
-      - name: Install Oracle Instant Client (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $InstantClientVersion = "21.9.0.0.0"
-          $InstantClientURL = "https://download.oracle.com/otn_software/nt/instantclient/219000/instantclient-basic-windows.x64-21.9.0.0.0dbru.zip"
-          
-          Invoke-WebRequest -Uri $InstantClientURL -OutFile instantclient.zip
-          Expand-Archive instantclient.zip -DestinationPath C:\oracle
-          
-          mkdir C:\oracle\instantclient_21_9\network\admin
-          @"
-          XE =
-            (DESCRIPTION =
-            (ADDRESS = (PROTOCOL = TCP)(HOST = oracle)(PORT = 1521))
-            (CONNECT_DATA =
-              (SERVER = DEDICATED)
-              (SERVICE_NAME = FREEPDB1)
-            )
-          )
-          "@ | Out-File C:\oracle\instantclient_21_9\network\admin\tnsnames.ora -Encoding ASCII
-          
-          echo "C:\oracle\instantclient_21_9" | Out-File -FilePath $env:GITHUB_PATH -Append
-          echo "PATH=C:\oracle\instantclient_21_9;$env:PATH" >> $env:GITHUB_ENV
-
-      # macOS 特定步骤
-      - name: Install Oracle Instant Client (macOS)
-        if: matrix.os == 'macos-latest'
-        run: |
-          brew install instantclient-basic
-          mkdir -p $(brew --prefix instantclient-basic)/lib/network/admin
-          echo "XE =
-            (DESCRIPTION =
-            (ADDRESS = (PROTOCOL = TCP)(HOST = oracle)(PORT = 1521))
-            (CONNECT_DATA =
-              (SERVER = DEDICATED)
-              (SERVICE_NAME = FREEPDB1)
-            )
-          )" > $(brew --prefix instantclient-basic)/lib/network/admin/tnsnames.ora
-          
-          echo "DYLD_LIBRARY_PATH=$(brew --prefix instantclient-basic)/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
-          echo "PATH=$(brew --prefix instantclient-basic)/bin:$PATH" >> $GITHUB_ENV
-
-      # 设置 hosts 文件
-      - name: Setup hosts file (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          Add-Content -Path $env:windir\System32\drivers\etc\hosts -Value "oracle 127.0.0.1"
-
-      - name: Setup hosts file (Unix)
-        if: matrix.os != 'windows-latest'
-        run: |
-          echo "127.0.0.1 oracle" | sudo tee -a /etc/hosts
-
       - name: Create test config
         shell: bash
         run: |
@@ -188,7 +133,7 @@ jobs:
                 "name": "测试库",
                 "user": "system",
                 "password": "oracle",
-                "host": "oracle",
+                "host": "localhost",
                 "port": 1521,
                 "service": "FREEPDB1"
               }
@@ -206,17 +151,37 @@ jobs:
       - name: Run unit tests
         run: go test -v -race -coverprofile=coverage.unit.txt ./cmd/... ./pkg/... ./internal/...
 
-      # 合并覆盖率报告
+      # 仅在 Linux 环境下运行集成测试
+      - name: Run integration tests
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          source $GITHUB_ENV
+          go test -v -race -coverprofile=coverage.integration.txt ./test/integration/...
+
+      # 仅在 Linux 环境下运行全量测试
+      - name: Run full tests
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          source $GITHUB_ENV
+          go test -v -race -coverprofile=coverage.full.txt ./...
+
+      # 合并覆盖率报告（仅 Linux）
       - name: Combine coverage reports
         if: matrix.os == 'ubuntu-latest'
         run: |
           echo "mode: atomic" > coverage.txt
           tail -n +2 coverage.unit.txt >> coverage.txt
+          if [ -f coverage.integration.txt ]; then
+            tail -n +2 coverage.integration.txt >> coverage.txt
+          fi
+          if [ -f coverage.full.txt ]; then
+            tail -n +2 coverage.full.txt >> coverage.txt
+          fi
 
-      # 上传覆盖率报告
+      # 上传覆盖率报告（仅 Linux）
       - name: Upload test coverage
         if: matrix.os == 'ubuntu-latest'
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           file: ./coverage.txt
@@ -224,7 +189,6 @@ jobs:
 
   # 测试结果汇总
   test-results:
-    if: always()
     needs: test
     runs-on: ubuntu-latest
     steps:
