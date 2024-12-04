@@ -124,6 +124,18 @@ func TestExecutor(t *testing.T) {
 				failed:  0,
 			},
 		},
+		{
+			name:    "调用过程测试",
+			sqlFile: "../fixtures/call_proc.sql",
+			wantErr: false,
+			expected: struct {
+				success int
+				failed  int
+			}{
+				success: 5,
+				failed:  0,
+			},
+		},
 		// 添加更多测试用例...
 	}
 
