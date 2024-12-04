@@ -60,20 +60,20 @@ jobs:
         id: cache-oracle-linux
         uses: actions/cache/restore@v4
         with:
-          path: /opt/oracle/instantclient_21_9
+          path: /opt/oracle/instantclient_23_6
           key: ubuntu-24.04-oracle-instantclient-${{ hashFiles('**/go.sum') }}
           restore-keys: ubuntu-24.04-oracle-instantclient-
       
       - name: Install Oracle Instant Client (Linux)
         if: matrix.os == 'ubuntu-24.04' && steps.cache-oracle-linux.outputs.cache-hit != 'true'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libaio1
+          # sudo apt-get update
+          # sudo apt-get install -y libaio1
           
-          wget https://download.oracle.com/otn_software/linux/instantclient/219000/instantclient-basic-linux.x64-21.9.0.0.0dbru.zip
+          wget https://download.oracle.com/otn_software/linux/instantclient/2360000/instantclient-basic-linux.x64-23.6.0.24.10.zip
           sudo mkdir -p /opt/oracle
-          sudo unzip instantclient-basic-linux.x64-21.9.0.0.0dbru.zip -d /opt/oracle
-          sudo mkdir -p /opt/oracle/instantclient_21_9/network/admin
+          sudo unzip instantclient-basic-linux.x64-23.6.0.24.10.zip -d /opt/oracle
+          sudo mkdir -p /opt/oracle/instantclient_23_6/network/admin
           echo "XE =
             (DESCRIPTION =
             (ADDRESS = (PROTOCOL = TCP)(HOST = localhost)(PORT = 1521))
@@ -81,21 +81,21 @@ jobs:
               (SERVER = DEDICATED)
               (SERVICE_NAME = FREEPDB1)
             )
-          )" | sudo tee /opt/oracle/instantclient_21_9/network/admin/tnsnames.ora
+          )" | sudo tee /opt/oracle/instantclient_23_6/network/admin/tnsnames.ora
           
       - name: Configure Oracle Instant Client (Linux)
         run: |
-          echo "/opt/oracle/instantclient_21_9" | sudo tee /etc/ld.so.conf.d/oracle-instantclient.conf
+          echo "/opt/oracle/instantclient_23_6" | sudo tee /etc/ld.so.conf.d/oracle-instantclient.conf
           sudo ldconfig
           
-          echo "LD_LIBRARY_PATH=/opt/oracle/instantclient_21_9:$LD_LIBRARY_PATH" >> $GITHUB_ENV
-          echo "PATH=/opt/oracle/instantclient_21_9:$PATH" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=/opt/oracle/instantclient_23_6:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          echo "PATH=/opt/oracle/instantclient_23_6:$PATH" >> $GITHUB_ENV
       
       - name: Cache Oracle Instant Client (Linux)
         if: matrix.os == 'ubuntu-24.04' && steps.cache-oracle-linux.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
-          path: /opt/oracle/instantclient_21_9
+          path: /opt/oracle/instantclient_23_6
           key: ubuntu-24.04-oracle-instantclient-${{ hashFiles('**/go.sum') }}
           restore-keys: ubuntu-24.04-oracle-instantclient-
 
