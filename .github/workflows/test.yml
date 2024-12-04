@@ -20,36 +20,12 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # 快速测试作业，仅在 Linux 上运行单元测试
-  quick-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.22'
-          cache: true
-      
-      - name: Run unit tests
-        run: go test -v -race -coverprofile=coverage.unit.txt ./cmd/... ./pkg/... ./internal/...
-      
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          file: ./coverage.unit.txt
-          flags: unit-tests
-
-  # 完整测试作业，包括多平台和多 Go 版本
   test:
-    needs: quick-test
     strategy:
       fail-fast: false
       matrix:
-        go-version: ['1.21', '1.23']
-        os: [ubuntu-latest]
+        go-version: ['1.21', '1.22', '1.23']
+        os: [ubuntu-24.04]
     
     runs-on: ${{ matrix.os }}
     
@@ -80,16 +56,16 @@ jobs:
 
       # Linux 特定步骤
       - name: Restore Oracle Instant Client (Linux)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-24.04'
         id: cache-oracle-linux
         uses: actions/cache/restore@v4
         with:
           path: /opt/oracle/instantclient_21_9
-          key: ubuntu-22.04-oracle-instantclient-${{ hashFiles('**/go.sum') }}
-          restore-keys: ubuntu-22.04-oracle-instantclient-
+          key: ubuntu-24.04-oracle-instantclient-${{ hashFiles('**/go.sum') }}
+          restore-keys: ubuntu-24.04-oracle-instantclient-
       
       - name: Install Oracle Instant Client (Linux)
-        if: matrix.os == 'ubuntu-latest' && steps.cache-oracle-linux.outputs.cache-hit != 'true'
+        if: matrix.os == 'ubuntu-24.04' && steps.cache-oracle-linux.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y libaio1
@@ -116,12 +92,12 @@ jobs:
           echo "PATH=/opt/oracle/instantclient_21_9:$PATH" >> $GITHUB_ENV
       
       - name: Cache Oracle Instant Client (Linux)
-        if: matrix.os == 'ubuntu-latest' && steps.cache-oracle-linux.outputs.cache-hit != 'true'
+        if: matrix.os == 'ubuntu-24.04' && steps.cache-oracle-linux.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: /opt/oracle/instantclient_21_9
-          key: ubuntu-22.04-oracle-instantclient-${{ hashFiles('**/go.sum') }}
-          restore-keys: ubuntu-22.04-oracle-instantclient-
+          key: ubuntu-24.04-oracle-instantclient-${{ hashFiles('**/go.sum') }}
+          restore-keys: ubuntu-24.04-oracle-instantclient-
 
       - name: Create test config
         shell: bash
@@ -153,21 +129,21 @@ jobs:
 
       # 仅在 Linux 环境下运行集成测试
       - name: Run integration tests
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-24.04'
         run: |
           source $GITHUB_ENV
           go test -v -race -coverprofile=coverage.integration.txt ./test/integration/...
 
       # 仅在 Linux 环境下运行全量测试
       - name: Run full tests
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-24.04'
         run: |
           source $GITHUB_ENV
           go test -v -race -coverprofile=coverage.full.txt ./...
 
       # 合并覆盖率报告（仅 Linux）
       - name: Combine coverage reports
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-24.04'
         run: |
           echo "mode: atomic" > coverage.txt
           tail -n +2 coverage.unit.txt >> coverage.txt
@@ -180,7 +156,7 @@ jobs:
 
       # 上传覆盖率报告（仅 Linux）
       - name: Upload test coverage
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-24.04'
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -190,7 +166,7 @@ jobs:
   # 测试结果汇总
   test-results:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check test results
         run: |
