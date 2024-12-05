@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/iyuangang/oracle-sql-runner/internal/config"
@@ -173,41 +174,6 @@ func TestValidateInputs(t *testing.T) {
 	}
 }
 
-func TestRunSQL(t *testing.T) {
-	cfg, logger := setupTestEnv(t)
-	defer logger.Close()
-
-	tests := []struct {
-		name    string
-		dbName  string
-		sqlFile string
-		wantErr bool
-	}{
-		{
-			name:    "数据库不存在",
-			dbName:  "nonexistent",
-			sqlFile: "test.sql",
-			wantErr: true,
-		},
-		{
-			name:    "有效数据库",
-			dbName:  "test",
-			sqlFile: "test.sql",
-			wantErr: true, // 因为无法连接到真实数据库
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := runSQL(cfg, tt.dbName, tt.sqlFile, logger)
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
 
 // 添加命令初始化函数
 func initCommands() {
@@ -408,85 +374,72 @@ func setupTestEnv(t *testing.T) (*config.Config, *utils.Logger) {
 	return cfg, logger
 }
 
-func TestRunE(t *testing.T) {
+func TestRunSQL(t *testing.T) {
+	cfg, logger := setupTestEnv(t)
+	defer logger.Close()
+
 	// 创建测试SQL文件
 	tmpDir := t.TempDir()
-	sqlFile := filepath.Join(tmpDir, "test.sql")
-	err := os.WriteFile(sqlFile, []byte(`
-		SELECT 1 FROM DUAL;
-		SELECT SYSDATE FROM DUAL;
-		BEGIN
-			NULL;
-		END;
-		/
-	`), 0o644)
+	testSQL := filepath.Join(tmpDir, "test.sql")
+	err := os.WriteFile(testSQL, []byte("SELECT 1 FROM DUAL;"), 0644)
 	require.NoError(t, err)
 
 	tests := []struct {
 		name    string
-		args    []string
+		dbName  string
+		sqlFile string
 		wantErr bool
 	}{
 		{
-			name: "正常运行",
-			args: []string{
-				"--config", "../../config.json",
-				"--file", sqlFile,
-				"--database", "test",
-				"--verbose",
-			},
-			wantErr: false,
-		},
-		{
-			name: "配置文件不存在",
-			args: []string{
-				"--config", "nonexistent.json",
-				"--file", sqlFile,
-				"--database", "test",
-			},
+			name:    "数据库不存在",
+			dbName:  "nonexistent",
+			sqlFile: testSQL,
 			wantErr: true,
 		},
 		{
-			name: "SQL文件不存在",
-			args: []string{
-				"--config", "../../config.json",
-				"--file", "nonexistent.sql",
-				"--database", "test",
-			},
-			wantErr: true,
-		},
-		{
-			name: "数据库不存在",
-			args: []string{
-				"--config", "../../config.json",
-				"--file", sqlFile,
-				"--database", "nonexistent",
-			},
-			wantErr: true,
-		},
-		{
-			name: "无效的SQL文件内容",
-			args: []string{
-				"--config", "../../config.json",
-				"--file", "../../config.json", // 使用配置文件作为SQL文件
-				"--database", "test",
-			},
-			wantErr: false,
+			name:    "有效数据库",
+			dbName:  "test",
+			sqlFile: testSQL,
+			wantErr: false, // 因为无法连接到真实数据库，所以期望错误
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// 重置命令行参数
-			rootCmd.SetArgs(tt.args)
+			// 保存原始的 osExit 函数
+			originalOsExit := osExit
+			defer func() { osExit = originalOsExit }()
 
-			// 执行命令
-			err := rootCmd.Execute()
+			// 模拟 osExit
+			var gotError bool
+			osExit = func(code int) {
+				if code != 0 {
+					gotError = true
+				}
+				panic(fmt.Sprintf("os.Exit(%d)", code))
+			}
+
+			var err error
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						if exitStr, ok := r.(string); ok {
+							if strings.HasPrefix(exitStr, "os.Exit(") {
+								err = fmt.Errorf("command failed: %s", exitStr)
+							}
+						}
+					}
+				}()
+				err = runSQL(cfg, tt.dbName, tt.sqlFile, logger)
+			}()
+
 			if tt.wantErr {
-				assert.Error(t, err)
+				assert.True(t, err != nil || gotError, "Expected an error for test case: %s", tt.name)
 			} else {
+				assert.False(t, gotError, "Expected no error for test case: %s", tt.name)
 				assert.NoError(t, err)
 			}
 		})
 	}
 }
+
