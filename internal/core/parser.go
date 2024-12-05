@@ -2,6 +2,7 @@ package core
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"strings"
 
@@ -39,11 +40,6 @@ func normalizeSQL(sql string, sqlType models.SQLType) string {
 			continue
 		}
 
-		// 移除最小缩进
-		if minIndent > 0 && len(line) > minIndent {
-			line = line[minIndent:]
-		}
-
 		// 根据关键字调整缩进
 		indent := ""
 		upperTrimmed := strings.ToUpper(trimmed)
@@ -70,8 +66,54 @@ func normalizeSQL(sql string, sqlType models.SQLType) string {
 	return strings.Join(normalized, "\n")
 }
 
+// validateSQLContent 验证SQL文件内容是否有效
+func validateSQLContent(content string) error {
+	// 去除注释和空行
+	lines := strings.Split(content, "\n")
+	var validLines []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "--") {
+			continue
+		}
+		validLines = append(validLines, line)
+	}
+
+	// 如果去除注释和空行后没有内容，则无效
+	if len(validLines) == 0 {
+		return fmt.Errorf("SQL文件内容为空或仅包含注释")
+	}
+
+	// 检查是否包含常见SQL关键字
+	content = strings.ToUpper(strings.Join(validLines, " "))
+	validKeywords := []string{
+		"SELECT", "INSERT", "UPDATE", "DELETE",
+		"CREATE", "ALTER", "DROP", "MERGE",
+		"BEGIN", "DECLARE", "EXECUTE", "GRANT",
+		"TRUNCATE", "COMMENT", "ANALYZE", "CALL",
+	}
+
+	for _, keyword := range validKeywords {
+		if strings.Contains(content, keyword) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("SQL文件内容无效: 未找到有效的SQL语句")
+}
+
 // ParseFile 解析SQL文件
 func ParseFile(path string) ([]models.SQLTask, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	// 验证SQL文件内容
+	if err := validateSQLContent(string(content)); err != nil {
+		return nil, err
+	}
+
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err

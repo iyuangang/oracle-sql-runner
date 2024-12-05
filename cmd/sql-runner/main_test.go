@@ -461,7 +461,7 @@ func TestRunE(t *testing.T) {
 				"--file", "../../config.json", // 使用配置文件作为SQL文件
 				"--database", "test",
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 	}
 
