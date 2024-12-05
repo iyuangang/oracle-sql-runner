@@ -88,6 +88,11 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("请指定数据库名称 (-d)")
 	}
 
+	// 检查SQL文件是否存在
+	if _, err := os.Stat(sqlFile); os.IsNotExist(err) {
+		return fmt.Errorf("SQL文件不存在: %s", sqlFile)
+	}
+
 	// 加载配置
 	cfg, err := config.Load(configFile)
 	if err != nil {
@@ -96,19 +101,14 @@ func run(cmd *cobra.Command, args []string) error {
 
 	// 检查并处理数据库密码
 	for name, dbConfig := range cfg.Databases {
-		if !utils.IsEncrypted(dbConfig.Password) {
-			encrypted, err := utils.EncryptPassword(dbConfig.Password)
+		if utils.IsEncrypted(dbConfig.Password) {
+			decrypted, err := utils.DecryptPassword(dbConfig.Password)
 			if err != nil {
-				return fmt.Errorf("加密数据库 %s 的密码失败: %w", name, err)
+				return fmt.Errorf("解密数据库 %s 的密码失败: %w", name, err)
 			}
-			dbConfig.Password = encrypted
+			dbConfig.Password = decrypted
 			cfg.Databases[name] = dbConfig
 		}
-	}
-
-	// 保存更新后的配置
-	if err := config.Save(configFile, cfg); err != nil {
-		return fmt.Errorf("保存配置失败: %w", err)
 	}
 
 	// 确保日志文件路径是绝对路径
@@ -133,10 +133,24 @@ func run(cmd *cobra.Command, args []string) error {
 		"sql_file", sqlFile,
 		"database", dbName)
 
+	// 获取目标数据库的配置并解密密码
+	dbConfig, ok := cfg.Databases[dbName]
+	if !ok {
+		return fmt.Errorf("数据库 %s 未配置", dbName)
+	}
+	if utils.IsEncrypted(dbConfig.Password) {
+		decrypted, err := utils.DecryptPassword(dbConfig.Password)
+		if err != nil {
+			return fmt.Errorf("解密数据库密码失败: %w", err)
+		}
+		dbConfig.Password = decrypted
+		cfg.Databases[dbName] = dbConfig
+	}
+
 	// 创建执行器
 	executor, err := core.NewExecutor(cfg, dbName, logger)
 	if err != nil {
-		return fmt.Errorf("创建执行器失败: %v", err)
+		return fmt.Errorf("创建执行器失败: %w", err)
 	}
 	defer executor.Close()
 

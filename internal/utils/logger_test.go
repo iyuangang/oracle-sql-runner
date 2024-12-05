@@ -270,11 +270,24 @@ func TestLogger_Fatal(t *testing.T) {
 }
 
 func TestGetCallerInfo(t *testing.T) {
+	// 测试正常情况
 	source := getCallerInfo(1)
 	require.NotNil(t, source)
 	assert.Contains(t, source.Function, "TestGetCallerInfo")
 	assert.Contains(t, source.File, "logger_test.go")
 	assert.Greater(t, source.Line, 0)
+
+	// 测试无效的调用栈深度（超出调用栈）
+	source = getCallerInfo(1000)
+	assert.Nil(t, source, "超出调用栈深度应返回nil")
+
+	// 测试函数名简化
+	source = getCallerInfo(0)
+	require.NotNil(t, source)
+	assert.NotContains(t, source.Function, "/", "函数名应该被简化（不包含完整路径）")
+
+	// 测试文件路径简化
+	assert.True(t, strings.Contains(source.File, "internal"), "文件路径应该包含'internal'")
 }
 
 func TestGetZapLevel(t *testing.T) {
@@ -382,7 +395,7 @@ func TestLogger_EncoderFormats(t *testing.T) {
 	logFileJSON := filepath.Join(tmpDir, "json.log")
 	logFileConsole := filepath.Join(tmpDir, "console.log")
 
-	// 测试 JSON 编码器
+	// 测试 JSON 编码
 	loggerJSON, err := NewLogger(logFileJSON, "info", true)
 	require.NoError(t, err)
 	defer loggerJSON.Close()

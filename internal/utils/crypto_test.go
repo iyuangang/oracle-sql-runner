@@ -1,6 +1,10 @@
 package utils
 
 import (
+	"crypto/aes"
+	"crypto/rand"
+	"encoding/base64"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -58,6 +62,17 @@ func TestEncryptPassword(t *testing.T) {
 			}
 		})
 	}
+
+	// 测试无效密钥
+	t.Run("无效密钥", func(t *testing.T) {
+		restore := setEncryptionKey([]byte{1}) // 设置一个无效的密钥
+		defer restore()                        // 确保测试后恢复原始密钥
+
+		_, err := EncryptPassword("test")
+		if err == nil {
+			t.Error("使用无效密钥时应该返回错误")
+		}
+	})
 }
 
 func TestDecryptPassword(t *testing.T) {
@@ -69,15 +84,31 @@ func TestDecryptPassword(t *testing.T) {
 	}{
 		{
 			name:     "已知加密密码解密",
-			password: "/X0c76bYY8S0i5hQ7XbciA8/CSgI",
+			password: "wyZpetSzmj0DQngd7pfkO1pw3PedA3rn",
 			wantErr:  false,
 			checkFunc: func(decrypted string) bool {
-				return decrypted == "hello"
+				return decrypted == "hello123"
 			},
 		},
 		{
 			name:     "空密文解密",
 			password: "",
+			wantErr:  true,
+			checkFunc: func(decrypted string) bool {
+				return true
+			},
+		},
+		{
+			name:     "无效的base64",
+			password: "invalid base64!@#$",
+			wantErr:  true,
+			checkFunc: func(decrypted string) bool {
+				return true
+			},
+		},
+		{
+			name:     "太短的密文",
+			password: "aGVsbG8=", // "hello" 的 base64
 			wantErr:  true,
 			checkFunc: func(decrypted string) bool {
 				return true
@@ -127,6 +158,16 @@ func TestDecryptPassword(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.name == "已知加密密码解密" {
+				// 测试无效密钥
+				restore := setEncryptionKey([]byte{1})
+				_, err := DecryptPassword(tt.password)
+				if err == nil {
+					t.Error("使用无效密钥时应该返回错误")
+				}
+				restore()
+			}
+
 			var encrypted string
 			var err error
 
@@ -189,18 +230,18 @@ func TestIsEncrypted(t *testing.T) {
 			want:     false,
 		},
 		{
-			name:     "有效的base64但不是加密数据",
-			password: "MTIzNDU2Nzg5MDEyMzQ1Ng==", // 16字节的随机数的base64
+			name:     "只有IV的base64",
+			password: base64.StdEncoding.EncodeToString(make([]byte, aes.BlockSize)),
 			want:     false,
 		},
 		{
-			name:     "超长的base64字符串",
-			password: strings.Repeat("QQ==", 1000), // 过长的base64字符串
-			want:     false,
+			name:     "IV加一个字节",
+			password: base64.StdEncoding.EncodeToString(make([]byte, aes.BlockSize+1)),
+			want:     true,
 		},
 		{
-			name:     "只有IV长度的base64",
-			password: "YWJjZGVmZ2hpamtsbW5vcA==", // 16字节的base64
+			name:     "超长密文",
+			password: base64.StdEncoding.EncodeToString(make([]byte, 3000)),
 			want:     false,
 		},
 	}
@@ -257,4 +298,27 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCryptoErrors 测试加密/解密的错误情况
+func TestCryptoErrors(t *testing.T) {
+	// 保存原始的随机数读取器
+	originalRandReader := rand.Reader
+	defer func() {
+		rand.Reader = originalRandReader
+	}()
+
+	// 测试随机数生成失败
+	rand.Reader = &errorReader{}
+	_, err := EncryptPassword("test")
+	if err == nil {
+		t.Error("随机数生成失败时应该返回错误")
+	}
+}
+
+// errorReader 实现了 io.Reader 接口，用于测试错误情况
+type errorReader struct{}
+
+func (e *errorReader) Read(p []byte) (n int, err error) {
+	return 0, fmt.Errorf("模拟的随机数生成错误")
 }

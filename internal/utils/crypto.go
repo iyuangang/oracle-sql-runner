@@ -9,16 +9,29 @@ import (
 	"io"
 )
 
-const encryptionKey = "oracle-sql-runner-key-32-bytes-7"
+var (
+	// 默认加密密钥
+	defaultKey = []byte("12345678901234567890123456789012")
+	// 当前使用的加密密钥
+	currentKey = defaultKey
+)
+
+// 用于测试的函数
+func setEncryptionKey(key []byte) (restore func()) {
+	oldKey := currentKey
+	currentKey = key
+	return func() {
+		currentKey = oldKey
+	}
+}
 
 // EncryptPassword 加密密码
 func EncryptPassword(password string) (string, error) {
-	// 不允许空密码
 	if password == "" {
 		return "", fmt.Errorf("密码不能为空")
 	}
 
-	block, err := aes.NewCipher([]byte(encryptionKey))
+	block, err := aes.NewCipher(currentKey)
 	if err != nil {
 		return "", err
 	}
@@ -38,12 +51,11 @@ func EncryptPassword(password string) (string, error) {
 
 // DecryptPassword 解密密码
 func DecryptPassword(encrypted string) (string, error) {
-	// 不允许空密码
 	if encrypted == "" {
 		return "", fmt.Errorf("密文不能为空")
 	}
 
-	block, err := aes.NewCipher([]byte(encryptionKey))
+	block, err := aes.NewCipher(currentKey)
 	if err != nil {
 		return "", err
 	}
@@ -80,22 +92,11 @@ func IsEncrypted(password string) bool {
 	}
 
 	// 3. 检查解码后的长度
-	if len(decoded) < aes.BlockSize { // 至少需要一个IV块
+	if len(decoded) <= aes.BlockSize { // 至少需要一个IV块
 		return false
 	}
 
-	// 4. 检查IV块
-	iv := decoded[:aes.BlockSize]
-	if len(iv) != aes.BlockSize {
-		return false
-	}
-
-	// 5. 检查是否有数据块（至少一个字节的加密数据）
-	if len(decoded) <= aes.BlockSize {
-		return false
-	}
-
-	// 6. 检查总长度是否合理（不超过一个合理的密码长度的加密结果）
+	// 4. 检查总长度是否合理（不超过一个合理的密码长度的加密结果）
 	maxEncryptedLen := 2048 // 假设原始密码不会超过2048字节
 	return len(decoded) <= maxEncryptedLen
 }
