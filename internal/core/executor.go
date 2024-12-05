@@ -71,47 +71,74 @@ func (e *Executor) ExecuteFile(path string) *models.Result {
 // executeParallel 并行执行SQL任务
 func (e *Executor) executeParallel(tasks []models.SQLTask) *models.Result {
 	result := models.NewResult()
-	sem := make(chan struct{}, e.config.MaxConcurrent)
-	var wg sync.WaitGroup
-	var mu sync.Mutex // 添加互斥锁保护结果对象
-
-	for _, task := range tasks {
-		wg.Add(1)
-		sem <- struct{}{}
-
-		go func(t models.SQLTask) {
-			defer wg.Done()
-			defer func() { <-sem }()
-
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(e.config.Timeout)*time.Second)
-			defer cancel()
-
-			start := time.Now()
-			err := e.executeTask(ctx, t)
-			duration := time.Since(start)
-
-			mu.Lock() // 加锁保护结果对象的修改
-			defer mu.Unlock()
-
-			if err != nil {
-				e.logger.Error("SQL任务执行失败",
-					"sql", t.SQL,
-					"line", t.LineNum,
-					"error", err)
-				result.AddError(t, err)
-				e.metrics.AddQuery(duration, false)
-			} else {
-				e.logger.Debug("SQL执行成功",
-					"sql", t.SQL,
-					"line", t.LineNum,
-					"duration", duration)
-				result.AddSuccess()
-				e.metrics.AddQuery(duration, true)
-			}
-		}(task)
+	if len(tasks) == 0 {
+		return result
 	}
 
-	wg.Wait()
+	// 创建工作池
+	workerCount := e.config.MaxConcurrent
+	if workerCount > len(tasks) {
+		workerCount = len(tasks)
+	}
+
+	// 创建任务通道
+	taskChan := make(chan models.SQLTask, len(tasks))
+	for _, task := range tasks {
+		taskChan <- task
+	}
+	close(taskChan)
+
+	// 创建结果通道
+	type taskResult struct {
+		task models.SQLTask
+		err  error
+	}
+	resultChan := make(chan taskResult, len(tasks))
+
+	// 启动工作协程
+	var wg sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for task := range taskChan {
+				ctx, cancel := context.WithTimeout(context.Background(), 
+					time.Duration(e.config.Timeout)*time.Second)
+				
+				start := time.Now()
+				err := e.executeTask(ctx, task)
+				duration := time.Since(start)
+				
+				cancel() // 确保取消上下文
+				
+				resultChan <- taskResult{task: task, err: err}
+				e.metrics.AddQuery(duration, err == nil)
+			}
+		}()
+	}
+
+	// 启动结果收集协程
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// 处理结果
+	for res := range resultChan {
+		if res.err != nil {
+			e.logger.Error("SQL任务执行失败",
+				"sql", res.task.SQL,
+				"line", res.task.LineNum,
+				"error", res.err)
+			result.AddError(res.task, res.err)
+		} else {
+			e.logger.Debug("SQL执行成功",
+				"sql", res.task.SQL,
+				"line", res.task.LineNum)
+			result.AddSuccess()
+		}
+	}
+
 	return result
 }
 
