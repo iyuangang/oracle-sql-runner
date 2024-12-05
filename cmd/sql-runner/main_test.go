@@ -385,6 +385,16 @@ func setupTestEnv(t *testing.T) (*config.Config, *utils.Logger) {
 	cfg, err := config.Load("../../config.json")
 	require.NoError(t, err, "加载配置文件失败")
 
+	// 处理所有数据库的加密密码
+	for name, dbConfig := range cfg.Databases {
+		if utils.IsEncrypted(dbConfig.Password) {
+			decrypted, err := utils.DecryptPassword(dbConfig.Password)
+			require.NoError(t, err, "解密数据库 %s 的密码失败", name)
+			dbConfig.Password = decrypted
+			cfg.Databases[name] = dbConfig
+		}
+	}
+
 	// 创建临时日志目录
 	tmpDir := t.TempDir()
 	logFile := filepath.Join(tmpDir, "test.log")

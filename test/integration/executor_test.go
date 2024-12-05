@@ -8,6 +8,7 @@ import (
 	"github.com/iyuangang/oracle-sql-runner/internal/config"
 	"github.com/iyuangang/oracle-sql-runner/internal/core"
 	"github.com/iyuangang/oracle-sql-runner/internal/utils"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExecutor(t *testing.T) {
@@ -19,6 +20,16 @@ func TestExecutor(t *testing.T) {
 	cfg, err := config.Load("../../config.json")
 	if err != nil {
 		t.Fatalf("加载配置失败: %v", err)
+	}
+
+	// 处理所有数据库的加密密码
+	for name, dbConfig := range cfg.Databases {
+		if utils.IsEncrypted(dbConfig.Password) {
+			decrypted, err := utils.DecryptPassword(dbConfig.Password)
+			require.NoError(t, err, "解密数据库 %s 的密码失败", name)
+			dbConfig.Password = decrypted
+			cfg.Databases[name] = dbConfig
+		}
 	}
 
 	// 创建临时日志文件

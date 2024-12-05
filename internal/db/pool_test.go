@@ -21,6 +21,13 @@ func setupTestEnv(t *testing.T) (*config.DatabaseConfig, *utils.Logger) {
 	dbConfig, ok := cfg.Databases["test"]
 	require.True(t, ok, "未找到测试数据库配置")
 
+	// 如果密码已加密，解密它
+	if utils.IsEncrypted(dbConfig.Password) {
+		decrypted, err := utils.DecryptPassword(dbConfig.Password)
+		require.NoError(t, err, "解密数据库密码失败")
+		dbConfig.Password = decrypted
+	}
+
 	// 创建临时日志文件
 	tmpDir, err := os.MkdirTemp("", "sql-runner-test")
 	require.NoError(t, err, "创建临时目录失败")

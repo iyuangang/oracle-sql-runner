@@ -162,7 +162,7 @@ END;`,
 -- 和空行
 
 `,
-			wantErr:  false,
+			wantErr:  true,
 			expected: make([]models.SQLTask, 0),
 		},
 		{
