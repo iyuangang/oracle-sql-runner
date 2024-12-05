@@ -38,7 +38,7 @@ func setupLogger(cfg *config.Config, configDir string) (*utils.Logger, error) {
 func handleDatabasePasswords(cfg *config.Config, configPath string) error {
 	configModified := false
 	memoryConfig := &config.Config{
-		Databases:      make(map[string]config.DatabaseConfig),
+		Databases:     make(map[string]config.DatabaseConfig),
 		MaxConcurrent: cfg.MaxConcurrent,
 		LogFile:       cfg.LogFile,
 		LogLevel:      cfg.LogLevel,

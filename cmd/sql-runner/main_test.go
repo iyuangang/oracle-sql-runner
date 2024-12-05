@@ -88,7 +88,7 @@ func TestHandleDatabasePasswords(t *testing.T) {
 					"test": {Password: "gWeG4Y2fP9vZ5KTe5IPHjkMusb4queY="},
 				},
 			},
-			wantErr: false, 
+			wantErr: false,
 			checkFunc: func(t *testing.T, cfg *config.Config) {
 				assert.False(t, utils.IsEncrypted(cfg.Databases["test"].Password))
 			},
@@ -127,7 +127,7 @@ func TestHandleDatabasePasswords(t *testing.T) {
 func TestValidateInputs(t *testing.T) {
 	tmpDir := t.TempDir()
 	validFile := filepath.Join(tmpDir, "test.sql")
-	require.NoError(t, os.WriteFile(validFile, []byte("SELECT 1 FROM DUAL;"), 0644))
+	require.NoError(t, os.WriteFile(validFile, []byte("SELECT 1 FROM DUAL;"), 0o644))
 
 	tests := []struct {
 		name    string
@@ -208,7 +208,6 @@ func TestRunSQL(t *testing.T) {
 		})
 	}
 }
-
 
 // 添加命令初始化函数
 func initCommands() {
@@ -410,7 +409,7 @@ func TestRunE(t *testing.T) {
 			NULL;
 		END;
 		/
-	`), 0644)
+	`), 0o644)
 	require.NoError(t, err)
 
 	tests := []struct {
