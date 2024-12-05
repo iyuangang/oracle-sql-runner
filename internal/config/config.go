@@ -101,3 +101,12 @@ func validate(cfg *Config) error {
 
 	return nil
 }
+
+// Save 保存配置到文件
+func Save(file string, cfg *Config) error {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(file, data, 0o644)
+}

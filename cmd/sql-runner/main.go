@@ -36,6 +36,48 @@ var rootCmd = &cobra.Command{
 	RunE:    run,
 }
 
+var encryptCmd = &cobra.Command{
+	Use:   "encrypt",
+	Short: "加密数据库密码",
+	RunE:  runEncrypt,
+}
+
+var decryptCmd = &cobra.Command{
+	Use:   "decrypt",
+	Short: "解密数据库密码",
+	RunE:  runDecrypt,
+}
+
+func runEncrypt(cmd *cobra.Command, args []string) error {
+	password := cmd.Flag("password").Value.String()
+	if password == "" {
+		return fmt.Errorf("请提供密码")
+	}
+
+	encrypted, err := utils.EncryptPassword(password)
+	if err != nil {
+		return fmt.Errorf("加密失败: %w", err)
+	}
+
+	fmt.Printf("加密后的密码: %s\n", encrypted)
+	return nil
+}
+
+func runDecrypt(cmd *cobra.Command, args []string) error {
+	password := cmd.Flag("password").Value.String()
+	if password == "" {
+		return fmt.Errorf("请提供加密密码")
+	}
+
+	decrypted, err := utils.DecryptPassword(password)
+	if err != nil {
+		return fmt.Errorf("解密失败: %w", err)
+	}
+
+	fmt.Printf("解密后的密码: %s\n", decrypted)
+	return nil
+}
+
 func run(cmd *cobra.Command, args []string) error {
 	// 验证必要参数
 	if sqlFile == "" {
@@ -50,6 +92,23 @@ func run(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load(configFile)
 	if err != nil {
 		return fmt.Errorf("加载配置失败: %w", err)
+	}
+
+	// 检查并处理数据库密码
+	for name, dbConfig := range cfg.Databases {
+		if !utils.IsEncrypted(dbConfig.Password) {
+			encrypted, err := utils.EncryptPassword(dbConfig.Password)
+			if err != nil {
+				return fmt.Errorf("加密数据库 %s 的密码失败: %w", name, err)
+			}
+			dbConfig.Password = encrypted
+			cfg.Databases[name] = dbConfig
+		}
+	}
+
+	// 保存更新后的配置
+	if err := config.Save(configFile, cfg); err != nil {
+		return fmt.Errorf("保存配置失败: %w", err)
 	}
 
 	// 确保日志文件路径是绝对路径
@@ -97,6 +156,12 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&sqlFile, "file", "f", "", "SQL文件路径")
 	rootCmd.PersistentFlags().StringVarP(&dbName, "database", "d", "", "数据库名称")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "显示详细信息")
+
+	encryptCmd.Flags().String("password", "", "要加密的密码")
+	decryptCmd.Flags().String("password", "", "要解密的密码")
+
+	rootCmd.AddCommand(encryptCmd)
+	rootCmd.AddCommand(decryptCmd)
 }
 
 func main() {
