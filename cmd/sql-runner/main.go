@@ -25,126 +25,86 @@ var (
 	osExit     = os.Exit
 )
 
-var rootCmd = &cobra.Command{
-	Use:   "sql-runner",
-	Short: "Oracle SQL 脚本执行工具",
-	Long: fmt.Sprintf(`Oracle SQL 脚本执行工具
-版本: %s
-提交: %s
-构建时间: %s`, Version, Commit, BuildTime),
-	Version: Version,
-	RunE:    run,
+// setupLogger 初始化日志记录器
+func setupLogger(cfg *config.Config, configDir string) (*utils.Logger, error) {
+	logFile := cfg.LogFile
+	if !filepath.IsAbs(logFile) {
+		logFile = filepath.Join(configDir, logFile)
+	}
+	return utils.NewLogger(logFile, cfg.LogLevel, verbose)
 }
 
-var encryptCmd = &cobra.Command{
-	Use:   "encrypt",
-	Short: "加密数据库密码",
-	RunE:  runEncrypt,
-}
-
-var decryptCmd = &cobra.Command{
-	Use:   "decrypt",
-	Short: "解密数据库密码",
-	RunE:  runDecrypt,
-}
-
-func runEncrypt(cmd *cobra.Command, args []string) error {
-	password := cmd.Flag("password").Value.String()
-	if password == "" {
-		return fmt.Errorf("请提供密码")
+// handleDatabasePasswords 处理数据库密码的加密和解密
+func handleDatabasePasswords(cfg *config.Config, configPath string) error {
+	configModified := false
+	memoryConfig := &config.Config{
+		Databases:      make(map[string]config.DatabaseConfig),
+		MaxConcurrent: cfg.MaxConcurrent,
+		LogFile:       cfg.LogFile,
+		LogLevel:      cfg.LogLevel,
 	}
 
-	encrypted, err := utils.EncryptPassword(password)
-	if err != nil {
-		return fmt.Errorf("加密失败: %w", err)
-	}
-
-	fmt.Printf("加密后的密码: %s\n", encrypted)
-	return nil
-}
-
-func runDecrypt(cmd *cobra.Command, args []string) error {
-	password := cmd.Flag("password").Value.String()
-	if password == "" {
-		return fmt.Errorf("请提供加密密码")
-	}
-
-	decrypted, err := utils.DecryptPassword(password)
-	if err != nil {
-		return fmt.Errorf("解密失败: %w", err)
-	}
-
-	fmt.Printf("解密后的密码: %s\n", decrypted)
-	return nil
-}
-
-func run(cmd *cobra.Command, args []string) error {
-	// 验证必要参数
-	if sqlFile == "" {
-		return fmt.Errorf("请指定SQL文件路径 (-f)")
-	}
-
-	if dbName == "" {
-		return fmt.Errorf("请指定数据库名称 (-d)")
-	}
-
-	// 检查SQL文件是否存在
-	if _, err := os.Stat(sqlFile); os.IsNotExist(err) {
-		return fmt.Errorf("SQL文件不存在: %s", sqlFile)
-	}
-
-	// 加载配置
-	cfg, err := config.Load(configFile)
-	if err != nil {
-		return fmt.Errorf("加载配置失败: %w", err)
-	}
-
-	// 检查并处理数据库密码
+	// 处理所有数据库的密码
 	for name, dbConfig := range cfg.Databases {
+		newConfig := dbConfig // 创建副本
 		if utils.IsEncrypted(dbConfig.Password) {
+			// 解密密码用于内存中的配置
 			decrypted, err := utils.DecryptPassword(dbConfig.Password)
 			if err != nil {
 				return fmt.Errorf("解密数据库 %s 的密码失败: %w", name, err)
 			}
-			dbConfig.Password = decrypted
-			cfg.Databases[name] = dbConfig
+			newConfig.Password = decrypted
+			memoryConfig.Databases[name] = newConfig
+		} else {
+			// 加密密码用于保存到文件
+			encrypted, err := utils.EncryptPassword(dbConfig.Password)
+			if err != nil {
+				return fmt.Errorf("加密数据库 %s 的密码失败: %w", name, err)
+			}
+			// 保存原始密码到内存配置
+			memoryConfig.Databases[name] = dbConfig
+			// 更新文件配置中的密码为加密版本
+			newConfig.Password = encrypted
+			cfg.Databases[name] = newConfig
+			configModified = true
 		}
 	}
 
-	// 确保日志文件路径是绝对路径
-	logFile := cfg.LogFile
-	if !filepath.IsAbs(logFile) {
-		// 使用配置文件所在目录作为基准目录
-		configDir := filepath.Dir(configFile)
-		logFile = filepath.Join(configDir, logFile)
+	// 如果有密码被加密，保存配置文件
+	if configModified {
+		if err := config.Save(configPath, cfg); err != nil {
+			return fmt.Errorf("保存加密后的配置失败: %w", err)
+		}
+		if logger, err := utils.NewLogger("sql-runner.log", "info", verbose); err == nil {
+			logger.Info("数据库密码已加密并保存到配置文件")
+			logger.Close()
+		}
 	}
 
-	// 初始化日志
-	logger, err := utils.NewLogger(logFile, cfg.LogLevel, verbose)
-	if err != nil {
-		return fmt.Errorf("初始化日志失败: %w", err)
+	// 用解密后的配置替换原配置
+	*cfg = *memoryConfig
+	return nil
+}
+
+// validateInputs 验证输入参数
+func validateInputs(sqlFile, dbName string) error {
+	if sqlFile == "" {
+		return fmt.Errorf("请指定SQL文件路径 (-f)")
 	}
-	defer logger.Close()
+	if dbName == "" {
+		return fmt.Errorf("请指定数据库名称 (-d)")
+	}
+	if _, err := os.Stat(sqlFile); os.IsNotExist(err) {
+		return fmt.Errorf("SQL文件不存在: %s", sqlFile)
+	}
+	return nil
+}
 
-	logger.Info("启动SQL Runner",
-		"version", Version,
-		"build_time", BuildTime,
-		"config", configFile,
-		"sql_file", sqlFile,
-		"database", dbName)
-
-	// 获取目标数据库的配置并解密密码
-	dbConfig, ok := cfg.Databases[dbName]
-	if !ok {
+// runSQL 执行SQL文件
+func runSQL(cfg *config.Config, dbName, sqlFile string, logger *utils.Logger) error {
+	// 检查数据库配置是否存在
+	if _, ok := cfg.Databases[dbName]; !ok {
 		return fmt.Errorf("数据库 %s 未配置", dbName)
-	}
-	if utils.IsEncrypted(dbConfig.Password) {
-		decrypted, err := utils.DecryptPassword(dbConfig.Password)
-		if err != nil {
-			return fmt.Errorf("解密数据库密码失败: %w", err)
-		}
-		dbConfig.Password = decrypted
-		cfg.Databases[dbName] = dbConfig
 	}
 
 	// 创建执行器
@@ -161,24 +121,105 @@ func run(cmd *cobra.Command, args []string) error {
 	if result.Failed > 0 {
 		return fmt.Errorf("执行失败")
 	}
-
 	return nil
 }
 
-func init() {
+// run 主要执行逻辑
+func run(cmd *cobra.Command, args []string) error {
+	// 验证输入参数
+	if err := validateInputs(sqlFile, dbName); err != nil {
+		return err
+	}
+
+	// 加载配置
+	cfg, err := config.Load(configFile)
+	if err != nil {
+		return fmt.Errorf("加载配置失败: %w", err)
+	}
+
+	// 处理数据库密码
+	if err := handleDatabasePasswords(cfg, configFile); err != nil {
+		return err
+	}
+
+	// 设置日志记录器
+	logger, err := setupLogger(cfg, filepath.Dir(configFile))
+	if err != nil {
+		return fmt.Errorf("初始化日志失败: %w", err)
+	}
+	defer logger.Close()
+
+	// 记录启动信息
+	logger.Info("启动SQL Runner",
+		"version", Version,
+		"build_time", BuildTime,
+		"config", configFile,
+		"sql_file", sqlFile,
+		"database", dbName)
+
+	// 执行SQL文件
+	return runSQL(cfg, dbName, sqlFile, logger)
+}
+
+func main() {
+	rootCmd := &cobra.Command{
+		Use:   "sql-runner",
+		Short: "Oracle SQL 脚本执行工具",
+		Long: fmt.Sprintf(`Oracle SQL 脚本执行工具
+版本: %s
+提交: %s
+构建时间: %s`, Version, Commit, BuildTime),
+		Version: Version,
+		RunE:    run,
+	}
+
+	// 设置命令行参数
 	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "config.json", "配置文件路径")
 	rootCmd.PersistentFlags().StringVarP(&sqlFile, "file", "f", "", "SQL文件路径")
 	rootCmd.PersistentFlags().StringVarP(&dbName, "database", "d", "", "数据库名称")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "显示详细信息")
 
-	encryptCmd.Flags().String("password", "", "要加密的密码")
-	decryptCmd.Flags().String("password", "", "要解密的密码")
-
+	// 加密命令
+	var encryptPassword string
+	encryptCmd := &cobra.Command{
+		Use:   "encrypt",
+		Short: "加密数据库密码",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if encryptPassword == "" {
+				return fmt.Errorf("请提供密码")
+			}
+			encrypted, err := utils.EncryptPassword(encryptPassword)
+			if err != nil {
+				return fmt.Errorf("加密失败: %w", err)
+			}
+			fmt.Printf("加密后的密码: %s\n", encrypted)
+			return nil
+		},
+	}
+	encryptCmd.Flags().StringVarP(&encryptPassword, "password", "p", "", "要加密的密码")
 	rootCmd.AddCommand(encryptCmd)
-	rootCmd.AddCommand(decryptCmd)
-}
 
-func main() {
+	// 解密命令
+	var decryptPassword string
+	decryptCmd := &cobra.Command{
+		Use:   "decrypt",
+		Short: "解密数据库密码",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if decryptPassword == "" {
+				return fmt.Errorf("请提供加密密码")
+			}
+			decrypted, err := utils.DecryptPassword(decryptPassword)
+			if err != nil {
+				return fmt.Errorf("解密失败: %w", err)
+			}
+			fmt.Printf("解密后的密码: %s\n", decrypted)
+			return nil
+		},
+	}
+	decryptCmd.Flags().StringVarP(&decryptPassword, "password", "p", "", "要解密的密码")
+	rootCmd.AddCommand(decryptCmd)
+
+	// 执行命令
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		osExit(1)
