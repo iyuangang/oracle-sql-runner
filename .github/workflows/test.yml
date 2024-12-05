@@ -165,7 +165,7 @@ jobs:
           flags: ${{ matrix.os }}-go${{ matrix.go-version }}
 
   # 测试结果汇总
-  test-results:
+  report-results:
     needs: test
     runs-on: ubuntu-24.04
     steps:

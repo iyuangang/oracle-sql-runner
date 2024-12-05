@@ -94,7 +94,7 @@ func (e *Executor) executeParallel(tasks []models.SQLTask) *models.Result {
 			defer mu.Unlock()
 
 			if err != nil {
-				e.logger.Error("SQL执行失败",
+				e.logger.Error("SQL任务执行失败",
 					"sql", t.SQL,
 					"line", t.LineNum,
 					"error", err)
@@ -172,18 +172,54 @@ func (e *Executor) executeSQL(ctx context.Context, sql string) error {
 
 // isRetryableError 判断是否可重试的错误
 func isRetryableError(err error) bool {
-	// 添加可重试的Oracle错误码
-	retryableCodes := map[int]bool{
-		1033:  true, // ORACLE initialization or shutdown in progress
-		1034:  true, // ORACLE not available
-		12154: true, // TNS:could not resolve the connect identifier specified
-		12170: true, // TNS:Connect timeout occurred
+	if err == nil {
+		return false
 	}
 
-	// TODO: 实现Oracle错误码判断
-	if _, ok := retryableCodes[1033]; ok {
-		return true
+	// Oracle 错误码映射
+	oracleErrors := map[int]bool{
+		1033:  true, // ORACLE initialization or shutdown in progress
+		1034:  true, // ORACLE not available
+		1089:  true, // immediate shutdown in progress
+		1090:  true, // shutdown in progress
+		1092:  true, // ORACLE instance terminated
+		3113:  true, // end-of-file on communication channel
+		3114:  true, // not connected to ORACLE
+		12153: true, // TNS:not connected
+		12154: true, // TNS:could not resolve service name
+		12170: true, // TNS:Connect timeout occurred
+		12171: true, // TNS:could not resolve connect identifier
+		12257: true, // TNS:protocol adapter not loadable
+		12514: true, // TNS:listener does not currently know of service requested
+		12528: true, // TNS:listener: all appropriate instances are blocking new connections
+		12537: true, // TNS:connection closed
+		12541: true, // TNS:no listener
+		12571: true, // TNS:packet writer failure
 	}
+
+	errStr := err.Error()
+	// 提取错误码
+	var errorCode int
+	_, scanErr := fmt.Sscanf(errStr, "ORA-%d:", &errorCode)
+	if scanErr == nil {
+		return oracleErrors[errorCode]
+	}
+
+	// 检查网络相关错误
+	networkErrors := []string{
+		"connection refused",
+		"connection reset",
+		"connection timed out",
+		"no route to host",
+		"network is unreachable",
+	}
+
+	for _, netErr := range networkErrors {
+		if strings.Contains(strings.ToLower(errStr), netErr) {
+			return true
+		}
+	}
+
 	return false
 }
 
