@@ -65,14 +65,15 @@ jobs:
 
   # 删除原有的 test job，替换为等待 test workflow 完成
   wait-tests:
+    name: Wait for tests
     needs: check
     runs-on: ubuntu-latest
     steps:
       - name: Wait for tests
-        uses: lewagon/wait-on-check-action@v1.3.4
+        uses: lewagon/wait-on-check-action@v1
         with:
           ref: ${{ github.ref }}
-          check: 'test (1.22, ubuntu-24.04)'
+          running-workflow-name: 'Wait for tests'
           repo-token: ${{ secrets.ACTION_GITHUB_TOKEN }}
           wait-interval: 10
 
