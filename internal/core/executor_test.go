@@ -2,9 +2,9 @@ package core
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,21 +26,19 @@ func setupTestEnv(t *testing.T) (*config.Config, *utils.Logger) {
 			decrypted, err := utils.DecryptPassword(dbConfig.Password)
 			require.NoError(t, err, "解密数据库 %s 的密码失败", name)
 			dbConfig.Password = decrypted
+			dbConfig.MaxConnections = 10 // 增加连接池大小
 			cfg.Databases[name] = dbConfig
 		}
 	}
 
 	// 创建临时日志文件
-	tmpDir, err := os.MkdirTemp("", "sql-runner-test")
-	require.NoError(t, err, "创建临时目录失败")
-
+	tmpDir := t.TempDir()
 	logFile := filepath.Join(tmpDir, "test.log")
 	logger, err := utils.NewLogger(logFile, "debug", true)
 	require.NoError(t, err, "创建日志记录器失败")
 
 	t.Cleanup(func() {
 		logger.Close()
-		os.RemoveAll(tmpDir)
 	})
 
 	return cfg, logger
@@ -258,27 +256,45 @@ func TestExecuteTask(t *testing.T) {
 }
 
 func TestParallelExecutionConcurrencySafety(t *testing.T) {
+	// 设置测试环境
 	cfg, logger := setupTestEnv(t)
-	cfg.MaxConcurrent = 10 // 设置较大的并发数
 	executor, err := NewExecutor(cfg, "test", logger)
 	require.NoError(t, err)
 	defer executor.Close()
 
-	// 创建大量测试任务
-	var tasks []models.SQLTask
-	for i := 0; i < 100; i++ {
-		tasks = append(tasks, models.SQLTask{
-			SQL:     fmt.Sprintf("SELECT %d FROM DUAL", i),
-			Type:    models.SQLTypeQuery,
+	// 创建测试任务
+	numTasks := 100
+	tasks := make([]models.SQLTask, numTasks)
+	for i := 0; i < numTasks; i++ {
+		tasks[i] = models.SQLTask{
+			SQL:     "SELECT 1 FROM DUAL",
 			LineNum: i + 1,
-		})
+		}
 	}
 
-	// 多次执行并发测试
-	for i := 0; i < 5; i++ {
-		result := executor.executeParallel(tasks)
-		assert.Equal(t, len(tasks), result.Success)
-		assert.Equal(t, 0, result.Failed)
+	// 设置较短的超时时间，避免长时间等待
+	executor.config.Timeout = 5
+
+	// 执行并发测试
+	var wg sync.WaitGroup
+	results := make([]*models.Result, 5) // 执行多次测试
+	for i := range results {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			results[idx] = executor.executeParallel(tasks)
+		}(i)
+	}
+	wg.Wait()
+
+	// 验证结果
+	for i, result := range results {
+		assert.Equal(t, numTasks, result.Success+result.Failed,
+			"Total tasks should match for test %d", i)
+		assert.Equal(t, numTasks, result.Success,
+			"All tasks should succeed for test %d", i)
+		assert.Equal(t, 0, result.Failed,
+			"No tasks should fail for test %d", i)
 	}
 }
 

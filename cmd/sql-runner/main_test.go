@@ -174,7 +174,6 @@ func TestValidateInputs(t *testing.T) {
 	}
 }
 
-
 // 添加命令初始化函数
 func initCommands() {
 	rootCmd = &cobra.Command{
@@ -381,7 +380,7 @@ func TestRunSQL(t *testing.T) {
 	// 创建测试SQL文件
 	tmpDir := t.TempDir()
 	testSQL := filepath.Join(tmpDir, "test.sql")
-	err := os.WriteFile(testSQL, []byte("SELECT 1 FROM DUAL;"), 0644)
+	err := os.WriteFile(testSQL, []byte("SELECT 1 FROM DUAL;"), 0o644)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -442,4 +441,3 @@ func TestRunSQL(t *testing.T) {
 		})
 	}
 }
-

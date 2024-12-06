@@ -102,15 +102,15 @@ func (e *Executor) executeParallel(tasks []models.SQLTask) *models.Result {
 		go func() {
 			defer wg.Done()
 			for task := range taskChan {
-				ctx, cancel := context.WithTimeout(context.Background(), 
+				ctx, cancel := context.WithTimeout(context.Background(),
 					time.Duration(e.config.Timeout)*time.Second)
-				
+
 				start := time.Now()
 				err := e.executeTask(ctx, task)
 				duration := time.Since(start)
-				
+
 				cancel() // 确保取消上下文
-				
+
 				resultChan <- taskResult{task: task, err: err}
 				e.metrics.AddQuery(duration, err == nil)
 			}
@@ -144,13 +144,14 @@ func (e *Executor) executeParallel(tasks []models.SQLTask) *models.Result {
 
 // executeTask 执行单个SQL任务
 func (e *Executor) executeTask(ctx context.Context, task models.SQLTask) error {
+	maxRetries := e.config.MaxRetries
+	var lastErr error
 	var err error
-	for i := 0; i < e.config.MaxRetries; i++ {
-		if i > 0 {
-			e.logger.Info("重试执行SQL",
-				"attempt", i+1,
-				"sql", task.SQL)
-			time.Sleep(time.Second * time.Duration(i))
+
+	for retry := 0; retry < maxRetries; retry++ {
+		if retry > 0 {
+			// 重试前等待一小段时间
+			time.Sleep(time.Duration(retry*100) * time.Millisecond)
 		}
 
 		switch task.Type {
@@ -159,19 +160,27 @@ func (e *Executor) executeTask(ctx context.Context, task models.SQLTask) error {
 		case models.SQLTypePLSQL:
 			err = e.executePLSQL(ctx, task.SQL)
 		default:
-			err = e.executeSQL(ctx, task.SQL)
+			_, err = e.pool.ExecContext(ctx, task.SQL)
 		}
 
 		if err == nil {
 			return nil
 		}
 
+		lastErr = err
+		e.logger.Warn("SQL执行失败，准备重试",
+			"sql", task.SQL,
+			"line", task.LineNum,
+			"retry", retry+1,
+			"error", err)
+
+		// 如果是不可重试的错误，直接返回
 		if !isRetryableError(err) {
 			return err
 		}
 	}
 
-	return err
+	return lastErr
 }
 
 // executeQuery 执行查询
