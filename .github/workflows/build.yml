@@ -27,7 +27,7 @@ env:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: |
       !startsWith(github.event.head_commit.message, 'docs:') &&
       !startsWith(github.event.head_commit.message, 'ci:') &&
@@ -67,7 +67,7 @@ jobs:
   wait-tests:
     name: Wait for tests
     needs: check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Wait for tests
         uses: lewagon/wait-on-check-action@v1.3.4
@@ -83,8 +83,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: ubuntu-latest, platform: linux, arch: amd64}
-          - {os: ubuntu-latest, platform: linux, arch: arm64}
+          - {os: ubuntu-24.04, platform: linux, arch: amd64}
+          - {os: ubuntu-24.04, platform: linux, arch: arm64}
           - {os: windows-latest, platform: windows, arch: amd64}
           - {os: macos-latest, platform: darwin, arch: amd64}
           - {os: macos-latest, platform: darwin, arch: arm64}
@@ -191,8 +191,7 @@ jobs:
 
   build-rocky8:
     needs: [check, wait-tests]
-    runs-on: ubuntu-latest
-    
+    runs-on: ubuntu-24.04
     container: 
       image: rockylinux:8
 
@@ -259,7 +258,7 @@ jobs:
 
   changelog:
     needs: check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: github.ref_type == 'tag' || github.event.inputs.tag_version != ''
     
     steps:
@@ -380,7 +379,7 @@ jobs:
   release:
     needs: [check, build, build-rocky8, changelog]
     if: github.ref_type == 'tag' || github.event.inputs.tag_version != ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     
     permissions:
       contents: write

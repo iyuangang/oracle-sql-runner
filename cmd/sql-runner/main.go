@@ -114,9 +114,14 @@ func runSQL(cfg *config.Config, dbName, sqlFile string, logger *utils.Logger) er
 	}
 	defer executor.Close()
 
+	defer fmt.Println()
+
 	// 执行SQL文件
 	result := executor.ExecuteFile(sqlFile)
 	result.Print()
+
+	// 强制刷新输出
+	os.Stdout.Sync()
 
 	if result.Failed > 0 {
 		return fmt.Errorf("执行失败")

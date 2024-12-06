@@ -68,6 +68,33 @@ func (e *Executor) ExecuteFile(path string) *models.Result {
 	return result
 }
 
+// 添加一个新的结构体来存储输出
+type outputCapture struct {
+	mu      sync.Mutex
+	outputs []string
+}
+
+func (o *outputCapture) Write(p []byte) (n int, err error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.outputs = append(o.outputs, string(p))
+	return len(p), nil
+}
+
+func (o *outputCapture) Print() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	for _, output := range o.outputs {
+		fmt.Print(output)
+	}
+}
+
+// taskResult 定义任务执行结果
+type taskResult struct {
+	task models.SQLTask
+	err  error
+}
+
 // executeParallel 并行执行SQL任务
 func (e *Executor) executeParallel(tasks []models.SQLTask) *models.Result {
 	result := models.NewResult()
@@ -89,11 +116,10 @@ func (e *Executor) executeParallel(tasks []models.SQLTask) *models.Result {
 	close(taskChan)
 
 	// 创建结果通道
-	type taskResult struct {
-		task models.SQLTask
-		err  error
-	}
 	resultChan := make(chan taskResult, len(tasks))
+
+	// 创建输出捕获器
+	output := &outputCapture{}
 
 	// 启动工作协程
 	var wg sync.WaitGroup
@@ -102,14 +128,19 @@ func (e *Executor) executeParallel(tasks []models.SQLTask) *models.Result {
 		go func() {
 			defer wg.Done()
 			for task := range taskChan {
-				ctx, cancel := context.WithTimeout(context.Background(),
-					time.Duration(e.config.Timeout)*time.Second)
+				// 增加超时时间，默认设置为30秒
+				timeout := 30 * time.Second
+				if e.config.Timeout > 0 {
+					timeout = time.Duration(e.config.Timeout) * time.Second
+				}
+
+				ctx, cancel := context.WithTimeout(context.Background(), timeout)
 
 				start := time.Now()
-				err := e.executeTask(ctx, task)
+				err := e.executeTaskWithOutput(ctx, task, output)
 				duration := time.Since(start)
 
-				cancel() // 确保取消上下文
+				cancel()
 
 				resultChan <- taskResult{task: task, err: err}
 				e.metrics.AddQuery(duration, err == nil)
@@ -117,24 +148,30 @@ func (e *Executor) executeParallel(tasks []models.SQLTask) *models.Result {
 		}()
 	}
 
-	// 启动结果收集协程
+	// 等待所有任务完成
 	go func() {
 		wg.Wait()
 		close(resultChan)
 	}()
 
 	// 处理结果
+	result = processResults(resultChan)
+
+	// 打印捕获的输出
+	output.Print()
+
+	return result
+}
+
+// processResults 处理执行结果
+func processResults(resultChan chan taskResult) *models.Result {
+	result := models.NewResult()
+
+	// 处理所有任务的结果
 	for res := range resultChan {
 		if res.err != nil {
-			e.logger.Error("SQL任务执行失败",
-				"sql", res.task.SQL,
-				"line", res.task.LineNum,
-				"error", res.err)
 			result.AddError(res.task, res.err)
 		} else {
-			e.logger.Debug("SQL执行成功",
-				"sql", res.task.SQL,
-				"line", res.task.LineNum)
 			result.AddSuccess()
 		}
 	}
@@ -313,6 +350,137 @@ func printQueryResults(rows *sql.Rows) error {
 	// 打印统计信息
 	fmt.Printf("\n共返回 %d 行数据\n", rowCount)
 	fmt.Println(strings.Repeat("-", 80))
+
+	return rows.Err()
+}
+
+// executeTaskWithOutput 执行单个SQL任务并捕获输出
+func (e *Executor) executeTaskWithOutput(ctx context.Context, task models.SQLTask, output *outputCapture) error {
+	maxRetries := 3
+	var lastErr error
+
+	for retry := 0; retry < maxRetries; retry++ {
+		if retry > 0 {
+			time.Sleep(time.Duration(retry*100) * time.Millisecond)
+		}
+
+		fmt.Fprintf(output, "\n执行任务: Type=%v, SQL=%v\n", task.Type, task.SQL)
+
+		var err error
+		switch task.Type {
+		case models.SQLTypeQuery:
+			fmt.Fprintf(output, "执行查询语句\n")
+			err = e.executeQueryWithOutput(ctx, task.SQL, output)
+		case models.SQLTypePLSQL:
+			fmt.Fprintf(output, "执行PL/SQL块\n")
+			err = e.executePLSQL(ctx, task.SQL)
+		default:
+			fmt.Fprintf(output, "执行普通SQL\n")
+			_, err = e.pool.ExecContext(ctx, task.SQL)
+		}
+
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+		fmt.Fprintf(output, "运行失败, 错误: %v\n", err)
+
+		if !isRetryableError(lastErr) {
+			return lastErr
+		}
+	}
+
+	return lastErr
+}
+
+// executeQueryWithOutput 执行查询并捕获输出
+func (e *Executor) executeQueryWithOutput(ctx context.Context, sql string, output *outputCapture) error {
+	fmt.Fprintf(output, "\n开始执行查询: %v\n", sql)
+
+	// 添加错误处理和重试逻辑
+	var lastErr error
+	for retry := 0; retry < 3; retry++ {
+		if retry > 0 {
+			fmt.Fprintf(output, "重试查询 (第 %d 次)\n", retry+1)
+			time.Sleep(time.Duration(retry*100) * time.Millisecond)
+		}
+
+		rows, err := e.pool.QueryContext(ctx, sql)
+		if err != nil {
+			lastErr = err
+			fmt.Fprintf(output, "查询执行失败: %v\n", err)
+			if ctx.Err() == context.DeadlineExceeded {
+				return fmt.Errorf("查询超时: %w", err)
+			}
+			continue
+		}
+		defer rows.Close()
+
+		fmt.Fprintf(output, "查询执行成功，准备打印结果\n")
+		return printQueryResultsWithOutput(rows, output)
+	}
+
+	return fmt.Errorf("查询执行失败: %w", lastErr)
+}
+
+// printQueryResultsWithOutput 打印查询结果并捕获输出
+func printQueryResultsWithOutput(rows *sql.Rows, output *outputCapture) error {
+	fmt.Fprintf(output, "\n=== 开始打印查询结果 ===\n")
+
+	columns, err := rows.Columns()
+	if err != nil {
+		fmt.Fprintf(output, "获取列信息失败: %v\n", err)
+		return fmt.Errorf("获取列信息失败: %w", err)
+	}
+
+	// 打印列头
+	for i, col := range columns {
+		if i > 0 {
+			fmt.Fprintf(output, "\t")
+		}
+		fmt.Fprintf(output, "%s", col)
+	}
+	fmt.Fprintf(output, "\n")
+	fmt.Fprintf(output, "%s\n", strings.Repeat("-", 80))
+
+	// 准备扫描目标
+	values := make([]interface{}, len(columns))
+	scanArgs := make([]interface{}, len(columns))
+	for i := range values {
+		scanArgs[i] = &values[i]
+	}
+
+	// 打印数据行
+	rowCount := 0
+	for rows.Next() {
+		err := rows.Scan(scanArgs...)
+		if err != nil {
+			return fmt.Errorf("扫描行数据失败: %w", err)
+		}
+
+		for i, value := range values {
+			if i > 0 {
+				fmt.Fprintf(output, "\t")
+			}
+			switch v := value.(type) {
+			case nil:
+				fmt.Fprintf(output, "NULL")
+			case []byte:
+				fmt.Fprintf(output, "%s", string(v))
+			case time.Time:
+				fmt.Fprintf(output, "%s", v.Format("2006-01-02 15:04:05"))
+			default:
+				fmt.Fprintf(output, "%v", v)
+			}
+		}
+		fmt.Fprintf(output, "\n")
+		rowCount++
+	}
+
+	fmt.Fprintf(output, "\n共返回 %d 行数据\n", rowCount)
+	fmt.Fprintf(output, "%s\n", strings.Repeat("-", 80))
+	fmt.Fprintf(output, "=== 结束打印查询结果 ===\n\n")
 
 	return rows.Err()
 }
