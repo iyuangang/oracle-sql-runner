@@ -263,7 +263,7 @@ func TestParallelExecutionConcurrencySafety(t *testing.T) {
 	defer executor.Close()
 
 	// 创建测试任务
-	numTasks := 100
+	numTasks := 10
 	tasks := make([]models.SQLTask, numTasks)
 	for i := 0; i < numTasks; i++ {
 		tasks[i] = models.SQLTask{

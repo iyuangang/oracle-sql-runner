@@ -200,12 +200,6 @@ func (e *Executor) executePLSQL(ctx context.Context, sql string) error {
 	return err
 }
 
-// executeSQL 执行普通SQL
-func (e *Executor) executeSQL(ctx context.Context, sql string) error {
-	_, err := e.pool.ExecContext(ctx, sql)
-	return err
-}
-
 // isRetryableError 判断是否可重试的错误
 func isRetryableError(err error) bool {
 	if err == nil {
