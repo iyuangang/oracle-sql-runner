@@ -7,7 +7,7 @@ ifeq ($(OS),Windows_NT)
     SEP = \\
     EXE = .exe
     # Windows 下获取时间
-    BUILD_TIME = $(Get-Date -Format "yyyy-MM-ddTHH:mm:ss")
+    BUILD_TIME = $(powershell Get-Date -Format "yyyy-MM-ddTHH:mm:ss")
 else
     # Unix-like 命令
     RM = rm -rf $(BUILD_DIR)
@@ -16,7 +16,7 @@ else
     SEP = /
     EXE =
     # Unix 下获取时间
-    BUILD_TIME = $(date -u '+%Y-%m-%dT%H:%M:%S')
+    BUILD_TIME = $(shell date --iso-8601=ns)
 endif
 
 # 基本变量
@@ -25,9 +25,8 @@ MAIN_PACKAGE = ./cmd/sql-runner
 BUILD_DIR = build
 
 # Git 信息获取（Windows 和 Unix 通用）
-VERSION = $(git describe --tags --always --dirty 2>nul || git describe --tags --always --dirty 2>/dev/null || echo unknown)
-COMMIT = $(git rev-parse --short HEAD 2>nul || git rev-parse --short HEAD 2>/dev/null || echo unknown)
-
+VERSION = $(shell git describe --tags --always --dirty 2>nul || git describe --tags --always --dirty 2>/dev/null || echo unknown)
+COMMIT = $(shell git rev-parse --short HEAD 2>nul || git rev-parse --short HEAD 2>/dev/null || echo unknown)
 # Go 编译标志
 LDFLAGS = -ldflags "-s -w -X main.Version=$(VERSION) -X main.Commit=$(COMMIT) -X main.BuildTime=$(BUILD_TIME)"
 GOFLAGS = -trimpath
