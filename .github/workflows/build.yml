@@ -403,11 +403,12 @@ jobs:
         with:
           subject-path: release/*
       
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: ${{ needs.check.outputs.version }}
-          body_path: changelog/CHANGELOG.md
-          files: release/*
-          draft: false
-          prerelease: ${{ contains(needs.check.outputs.version, 'beta') || contains(needs.check.outputs.version, 'alpha') }}
+      - name: Create Release via GitHub CLI
+        env:
+          GH_TOKEN: ${{ secrets.ACTION_GITHUB_TOKEN}}
+        run: |
+          gh release create ${{ needs.check.outputs.version }} release/* \
+            --title "${{ needs.check.outputs.version }}" \
+            --notes-file changelog/CHANGELOG.md \
+            --draft false \
+            --prerelease ${{ contains(needs.check.outputs.version, 'beta') || contains(needs.check.outputs.version, 'alpha') }}
