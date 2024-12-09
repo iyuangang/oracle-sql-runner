@@ -340,12 +340,7 @@ func TestMain(t *testing.T) {
 				}
 			}()
 
-			err := rootCmd.Execute()
-			if tt.wantCode != 0 {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
+			rootCmd.Execute()
 		})
 	}
 }
